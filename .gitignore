@@ -1,0 +1,37 @@
+# Node / Expo
+node_modules/
+app/.expo/
+app/dist/
+app/web-build/
+app/expo-env.d.ts
+app/.metro-health-check*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Native build outputs
+app/ios/
+app/android/
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# TypeScript
+*.tsbuildinfo
+
+# Playwright MCP 세션 아티팩트 (콘솔 로그/페이지 스냅샷)
+.playwright-mcp/
