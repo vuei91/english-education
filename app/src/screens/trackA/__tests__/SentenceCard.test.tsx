@@ -22,6 +22,15 @@ describe('SentenceCard', () => {
     expect(screen.getByText('안녕, 세상.')).toBeOnTheScreen();
   });
 
+  it('hides the Korean translation again when the toggle is tapped twice', () => {
+    render(<SentenceCard textEn="Hello world." textKo="안녕, 세상." />);
+    fireEvent.press(screen.getByLabelText('한국어 번역 보기'));
+    expect(screen.getByText('안녕, 세상.')).toBeOnTheScreen();
+    fireEvent.press(screen.getByLabelText('한국어 번역 숨기기'));
+    expect(screen.queryByText('안녕, 세상.')).toBeNull();
+    expect(screen.getByLabelText('한국어 번역 보기')).toBeOnTheScreen();
+  });
+
   it('calls onWordPress with a normalised lowercase word', () => {
     const onWordPress = jest.fn();
     render(<SentenceCard textEn="I want Pizza!" onWordPress={onWordPress} />);

@@ -12,6 +12,7 @@ export {
 export {
   useProgressStore,
   useHydrateProgressStore,
+  bindCurriculumProgressSync,
   DAILY_GOAL_OPTIONS,
   DRILL_COMPLETION_THRESHOLD,
   type ProgressState,

@@ -169,6 +169,183 @@ describe('useVocabStore', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Task 16.1 — useSessionStore curriculum fields (Req 6.1, 6.2, 6.3)
+// ---------------------------------------------------------------------------
+describe('useSessionStore — curriculum fields (Task 16.1)', () => {
+  beforeEach(() => {
+    useSessionStore.getState().endSession();
+  });
+
+  it('startSession without curriculum arg keeps curriculum fields null (Req 6.2)', () => {
+    useSessionStore.getState().startSession('A', 'sentence-1');
+    const s = useSessionStore.getState();
+    expect(s.activeTrack).toBe('A');
+    expect(s.currentSentenceId).toBe('sentence-1');
+    expect(s.currentUnitId).toBeNull();
+    expect(s.currentCurriculumStepId).toBeNull();
+  });
+
+  it('startSession with curriculum arg populates unitId and curriculumStepId (Req 6.2)', () => {
+    useSessionStore.getState().startSession('A', 'sentence-2', {
+      unitId: 'unit-abc',
+      curriculumStepId: 'step-xyz',
+    });
+    const s = useSessionStore.getState();
+    expect(s.activeTrack).toBe('A');
+    expect(s.currentSentenceId).toBe('sentence-2');
+    expect(s.currentUnitId).toBe('unit-abc');
+    expect(s.currentCurriculumStepId).toBe('step-xyz');
+  });
+
+  it('endSession resets curriculum fields to null (Req 6.3)', () => {
+    useSessionStore.getState().startSession('A', 'sentence-3', {
+      unitId: 'unit-abc',
+      curriculumStepId: 'step-xyz',
+    });
+    useSessionStore.getState().endSession();
+    const s = useSessionStore.getState();
+    expect(s.activeTrack).toBeNull();
+    expect(s.currentUnitId).toBeNull();
+    expect(s.currentCurriculumStepId).toBeNull();
+  });
+
+  it('Track B startSession with curriculum still sets chunking step (Req 6.1)', () => {
+    useSessionStore.getState().startSession('B', 'sentence-4', {
+      unitId: 'unit-def',
+      curriculumStepId: 'step-ghi',
+    });
+    const s = useSessionStore.getState();
+    expect(s.activeTrack).toBe('B');
+    expect(s.currentStep).toBe('chunking');
+    expect(s.currentUnitId).toBe('unit-def');
+    expect(s.currentCurriculumStepId).toBe('step-ghi');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 16.2 — useProgressStore.markStepCompleted (Req 6.5, 6.6)
+// ---------------------------------------------------------------------------
+describe('useProgressStore — markStepCompleted (Task 16.2)', () => {
+  const UNIT_ID = 'unit-001';
+  const STEP_IDS = ['step-phrase', 'step-conj', 'step-sub'] as const;
+
+  beforeEach(() => {
+    useProgressStore.getState().reset();
+    useProgressStore.setState({ hydrated: true });
+  });
+
+  it('adds stepId to completedStepIds (Req 6.5)', () => {
+    useProgressStore.getState().markStepCompleted(UNIT_ID, STEP_IDS[0], STEP_IDS);
+    const s = useProgressStore.getState();
+    expect(s.completedStepIds.has(STEP_IDS[0])).toBe(true);
+    expect(s.completedStepIds.size).toBe(1);
+  });
+
+  it('returns { unitCompleted: false } when not all steps are done (Req 6.6)', () => {
+    const result = useProgressStore
+      .getState()
+      .markStepCompleted(UNIT_ID, STEP_IDS[0], STEP_IDS);
+    expect(result).toEqual({ unitCompleted: false });
+    expect(useProgressStore.getState().completedUnitIds.has(UNIT_ID)).toBe(false);
+  });
+
+  it('returns { unitCompleted: true } when all 3 steps are completed (Req 6.6)', () => {
+    useProgressStore.getState().markStepCompleted(UNIT_ID, STEP_IDS[0], STEP_IDS);
+    useProgressStore.getState().markStepCompleted(UNIT_ID, STEP_IDS[1], STEP_IDS);
+    const result = useProgressStore
+      .getState()
+      .markStepCompleted(UNIT_ID, STEP_IDS[2], STEP_IDS);
+    expect(result).toEqual({ unitCompleted: true });
+    expect(useProgressStore.getState().completedUnitIds.has(UNIT_ID)).toBe(true);
+  });
+
+  it('is idempotent — re-completing a step returns { unitCompleted: false }', () => {
+    useProgressStore.getState().markStepCompleted(UNIT_ID, STEP_IDS[0], STEP_IDS);
+    const result = useProgressStore
+      .getState()
+      .markStepCompleted(UNIT_ID, STEP_IDS[0], STEP_IDS);
+    expect(result).toEqual({ unitCompleted: false });
+    expect(useProgressStore.getState().completedStepIds.size).toBe(1);
+  });
+
+  it('tracks multiple units independently', () => {
+    const UNIT_B = 'unit-002';
+    const STEPS_B = ['step-b1', 'step-b2', 'step-b3'] as const;
+
+    // Complete all steps for unit A
+    for (const stepId of STEP_IDS) {
+      useProgressStore.getState().markStepCompleted(UNIT_ID, stepId, STEP_IDS);
+    }
+    // Complete only 1 step for unit B
+    useProgressStore.getState().markStepCompleted(UNIT_B, STEPS_B[0], STEPS_B);
+
+    const s = useProgressStore.getState();
+    expect(s.completedUnitIds.has(UNIT_ID)).toBe(true);
+    expect(s.completedUnitIds.has(UNIT_B)).toBe(false);
+    expect(s.completedStepIds.size).toBe(4); // 3 from A + 1 from B
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 16.3 — hydrate round-trip for curriculum Sets (Req 6.7)
+// ---------------------------------------------------------------------------
+describe('useProgressStore — curriculum Set hydrate round-trip (Task 16.3)', () => {
+  const UNIT_ID = 'unit-hydrate';
+  const STEP_IDS = ['step-h1', 'step-h2', 'step-h3'] as const;
+
+  beforeEach(() => {
+    useProgressStore.getState().reset();
+    useProgressStore.setState({ hydrated: true });
+  });
+
+  it('completedUnitIds and completedStepIds survive hydrate as Set instances (Req 6.7)', async () => {
+    // Complete all steps → unit marked complete
+    for (const stepId of STEP_IDS) {
+      useProgressStore.getState().markStepCompleted(UNIT_ID, stepId, STEP_IDS);
+    }
+    expect(useProgressStore.getState().completedUnitIds.has(UNIT_ID)).toBe(true);
+
+    // Let AsyncStorage write settle
+    await Promise.resolve();
+
+    // Wipe in-memory state (simulate app relaunch)
+    useProgressStore.setState({
+      completedUnitIds: new Set<string>(),
+      completedStepIds: new Set<string>(),
+      hydrated: false,
+    });
+
+    // Hydrate from disk
+    await useProgressStore.getState().hydrate();
+
+    const s = useProgressStore.getState();
+    // Must be Set instances, not arrays
+    expect(s.completedUnitIds).toBeInstanceOf(Set);
+    expect(s.completedStepIds).toBeInstanceOf(Set);
+    // Values must survive the round-trip
+    expect(s.completedUnitIds.has(UNIT_ID)).toBe(true);
+    for (const stepId of STEP_IDS) {
+      expect(s.completedStepIds.has(stepId)).toBe(true);
+    }
+    expect(s.completedStepIds.size).toBe(3);
+  });
+
+  it('hydrate with no prior curriculum data yields empty Sets (Req 6.7)', async () => {
+    // Reset clears AsyncStorage, so hydrate reads nothing
+    useProgressStore.getState().reset();
+    useProgressStore.setState({ hydrated: false });
+
+    await useProgressStore.getState().hydrate();
+
+    const s = useProgressStore.getState();
+    expect(s.completedUnitIds).toBeInstanceOf(Set);
+    expect(s.completedStepIds).toBeInstanceOf(Set);
+    expect(s.completedUnitIds.size).toBe(0);
+    expect(s.completedStepIds.size).toBe(0);
+  });
+});
+
 describe('useProgressStore — pattern master badge (Task 8.5, Req 2.7)', () => {
   // Drive `today` explicitly so these tests never depend on the
   // runtime clock. DRILL_COMPLETION_THRESHOLD is 3 at the time of

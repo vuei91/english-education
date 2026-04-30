@@ -1,11 +1,18 @@
 import type * as SQLite from 'expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { CEFRLevel, Track } from '../../types/domain';
+import type { CEFRLevel, Sentence, Track } from '../../types/domain';
 import {
   parsePatternDrillVariants,
   type PatternDrillVariants,
 } from './patternDrill';
+
+/**
+ * `Sentence` lives in `app/src/types/domain` as of curriculum-foundation
+ * Task 3.3. We re-export the name here so existing call sites that import
+ * from `'../../services/content'` keep working unchanged.
+ */
+export type { Sentence } from '../../types/domain';
 
 /**
  * ContentService — Content Pool reader with an optional offline cache.
@@ -23,17 +30,6 @@ import {
  */
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-export type Sentence = {
-  id: string;
-  track: Track;
-  textEn: string;
-  textKo: string | null;
-  cefrLevel: CEFRLevel;
-  situation: string | null;
-  source: string;
-  license: string;
-};
 
 export type Chunk = {
   id: string;
@@ -97,6 +93,16 @@ export class ContentService {
       hotWords?: string[];
       /** Sentence ids already consumed this session. */
       excludeIds?: string[];
+      /**
+       * When set, restricts candidates to sentences whose
+       * `curriculum_step_id` matches. Added in curriculum-foundation
+       * Task 8.1 (Req 5.1, 5.2). The RPC falls back to `NULL` when the
+       * option is omitted, preserving the pre-curriculum behaviour for
+       * existing callers (Req 5.3). When the filter yields no rows the
+       * service returns `null` — there is no fallback to the broader
+       * pool (Req 5.4).
+       */
+      curriculumStepId?: string;
     } = {},
   ): Promise<Sentence | null> {
     const hotWords = (options.hotWords ?? []).map((w) => w.toLowerCase());
@@ -105,6 +111,7 @@ export class ContentService {
       p_cefr: cefr,
       p_hot_words: hotWords,
       p_exclude_ids: options.excludeIds ?? [],
+      p_curriculum_step_id: options.curriculumStepId ?? null,
     });
     if (error) throw new Error(error.message);
     const row = Array.isArray(data) ? data[0] : null;
@@ -118,6 +125,12 @@ export class ContentService {
       situation: (row.situation as string | null) ?? null,
       source: row.source as string,
       license: row.license as string,
+      // `curriculum_step_id` + `is_phrase` were added to the RPC shape in
+      // curriculum-foundation Tasks 2.1~2.3 and the filter option in
+      // Task 8.1. Defensive fallbacks keep us safe if the server is ever
+      // rolled back or the row predates the migration.
+      curriculumStepId: (row.curriculum_step_id as string | null | undefined) ?? null,
+      isPhrase: (row.is_phrase as boolean | undefined) ?? false,
     };
     await this.writeCache('sentence', sentence.id, sentence);
     return sentence;

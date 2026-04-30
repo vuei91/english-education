@@ -37,6 +37,7 @@ export const SyncQueueRepository = {
       `SELECT id, op, table_name, payload_json, enqueued_at, retry_count, last_error
        FROM sync_queue
        WHERE retry_count < ?
+         AND table_name NOT LIKE '%_pending'
        ORDER BY enqueued_at ASC
        LIMIT ?;`,
       MAX_RETRIES,

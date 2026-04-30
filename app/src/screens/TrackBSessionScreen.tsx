@@ -141,23 +141,38 @@ export default function TrackBSessionScreen() {
   const playChunk = useCallback(
     async (chunk: Chunk) => {
       setChunkIndex(chunks.findIndex((c) => c.id === chunk.id));
-      await audioPlayer.speak(chunk.text, { rate: speed });
+      await audioPlayer.speak(chunk.text, {
+        kind: 'chunk',
+        sentenceId: chunk.id,
+        rate: speed,
+      });
     },
     [chunks, setChunkIndex, speed],
   );
 
   const playFull = useCallback(async () => {
     if (!sentence) return;
-    await audioPlayer.speak(sentence.textEn, { rate: speed });
+    await audioPlayer.speak(sentence.textEn, {
+      sentenceId: sentence.id,
+      rate: speed,
+    });
   }, [sentence, speed]);
 
   const repeatChunk = useCallback(async () => {
     const chunk = chunks[currentChunkIndex];
     if (!chunk) return;
-    await audioPlayer.speak(chunk.text, { rate: speed });
+    await audioPlayer.speak(chunk.text, {
+      kind: 'chunk',
+      sentenceId: chunk.id,
+      rate: speed,
+    });
     if (chunkPauseEnabled) {
       await new Promise((r) => setTimeout(r, 1500));
-      await audioPlayer.speak(chunk.text, { rate: speed });
+      await audioPlayer.speak(chunk.text, {
+        kind: 'chunk',
+        sentenceId: chunk.id,
+        rate: speed,
+      });
     }
   }, [chunks, chunkPauseEnabled, currentChunkIndex, speed]);
 

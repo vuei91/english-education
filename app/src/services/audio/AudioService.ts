@@ -213,14 +213,38 @@ export class AudioService {
     if (this.audioModeConfigured) return;
     try {
       await setAudioModeAsync({
+        // Keep playing even when the phone is on silent — listening
+        // is the #1 experience and a silent-mode switch shouldn't
+        // mute learning audio.
         playsInSilentMode: true,
+        // Learning sessions are foreground; don't request background
+        // playback (would need iOS background mode entitlements).
         shouldPlayInBackground: false,
+        // Route audio through the media stream so the hardware
+        // volume keys adjust media volume (not ringer/notification).
+        // On iOS this maps to the `playback` category; on Android
+        // expo-audio sets USAGE_MEDIA / CONTENT_TYPE_SPEECH under the
+        // hood, which is what makes the volume rocker target the
+        // music stream while the app is in the foreground.
+        interruptionMode: 'mixWithOthers',
+        interruptionModeAndroid: 'duckOthers',
       });
       this.audioModeConfigured = true;
     } catch {
       // Web / unsupported platforms — carry on without the native mode call.
       this.audioModeConfigured = true;
     }
+  }
+
+  /**
+   * Prime the audio session at app boot. We want the media volume
+   * stream to be active *before* the user touches the volume rocker,
+   * otherwise Android routes volume key presses to the ringer stream
+   * until first playback. Safe to call multiple times — repeat calls
+   * short-circuit on `audioModeConfigured`.
+   */
+  async primeAudioSession(): Promise<void> {
+    await this.configureAudioMode();
   }
 
   /**

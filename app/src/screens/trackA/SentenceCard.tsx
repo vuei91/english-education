@@ -55,18 +55,19 @@ export default function SentenceCard({ textEn, textKo, onWordPress }: SentenceCa
 
       {textKo ? (
         <View style={styles.koreanRow}>
-          {showKorean ? (
-            <Text style={styles.korean}>{textKo}</Text>
-          ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="한국어 번역 보기"
-              onPress={() => setShowKorean(true)}
-              style={styles.toggle}
-            >
-              <Text style={styles.toggleText}>한국어 보기</Text>
-            </Pressable>
-          )}
+          {showKorean ? <Text style={styles.korean}>{textKo}</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              showKorean ? '한국어 번역 숨기기' : '한국어 번역 보기'
+            }
+            onPress={() => setShowKorean((prev) => !prev)}
+            style={styles.toggle}
+          >
+            <Text style={styles.toggleText}>
+              {showKorean ? '숨기기' : '한국어 보기'}
+            </Text>
+          </Pressable>
         </View>
       ) : null}
     </View>

@@ -13,6 +13,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 export type RootStackParamList = {
   Onboarding: undefined;
   RootTabs: NavigatorScreenParams<RootTabsParamList>;
+  UnitList: { level: 'A1' | 'A2' | 'B1' };
+  TrackASession: { unitId: string; unitTitle: string };
   VocabHelper: { word: string; sourceSentenceId?: string };
   RewardedConfirm: {
     rewardType: 'heart' | 'unlock' | 'drill-retry';

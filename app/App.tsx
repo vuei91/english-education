@@ -1,9 +1,11 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, View } from 'react-native';
 
 import RootNavigator from './src/navigation/RootNavigator';
+import { audioService } from './src/services/audio';
 import { useHydrateUserStore } from './src/stores/useUserStore';
 import {
   darkNavigationTheme,
@@ -12,6 +14,14 @@ import {
 } from './src/theme';
 
 export default function App() {
+  useEffect(() => {
+    // Prime the audio session up front so the hardware volume keys
+    // target the media stream (not the ringer) as soon as the user
+    // launches the app. Without this, Android routes volume presses
+    // to ringer volume until the first playback call.
+    void audioService.primeAudioSession();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <ThemedNavigation />

@@ -1,5 +1,6 @@
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RouteProp } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,11 +14,12 @@ import {
 import type { RootStackParamList } from '../../navigation/types';
 import { audioPlayer } from '../../services/audio/audioPlayer';
 import { ContentService, type Sentence } from '../../services/content';
+import { CurriculumService } from '../../services/curriculum/CurriculumService';
 import { getSupabaseClient } from '../../lib/supabase';
 import { getContentDatabase } from '../../db';
 import { useSessionStore, useUserStore, useVocabStore, useProgressStore } from '../../stores';
 import { useTheme, type Theme } from '../../theme';
-import type { SentenceFeedback } from '../../types/domain';
+import type { CurriculumStep, SentenceFeedback } from '../../types/domain';
 import AudioControls from './AudioControls';
 import FeedbackBar from './FeedbackBar';
 import SentenceCard from './SentenceCard';
@@ -45,6 +47,8 @@ export default function TrackASessionScreen() {
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'TrackASession'>>();
+  const unitId = route.params?.unitId;
 
   const cefrLevel = useUserStore((s) => s.cefrLevel);
   const startSession = useSessionStore((s) => s.startSession);
@@ -57,16 +61,15 @@ export default function TrackASessionScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [playCount, setPlayCount] = useState(0);
-  /**
-   * Sentences shown in this session. Used by the RPC to avoid serving the
-   * same card twice before the user has seen the rest of the pool. The
-   * list resets whenever the screen mounts (endSession cleanup).
-   */
+  const [stepLabel, setStepLabel] = useState<string | null>(null);
   const shownIdsRef = useRef<string[]>([]);
+  /** Curriculum steps for the selected unit, loaded once. */
+  const stepsRef = useRef<CurriculumStep[]>([]);
+  /** Index into stepsRef — advances when a step's sentences are exhausted. */
+  const stepIndexRef = useRef(0);
 
-  // Keep the service instance stable across renders; re-creating the
-  // Supabase-backed service on every render would thrash the cache.
   const serviceRef = useRef<ContentService | null>(null);
+  const curriculumSvcRef = useRef<CurriculumService | null>(null);
 
   const getService = useCallback(async () => {
     if (serviceRef.current) return serviceRef.current;
@@ -75,39 +78,104 @@ export default function TrackASessionScreen() {
     return serviceRef.current;
   }, []);
 
+  const getCurriculumService = useCallback(async () => {
+    if (curriculumSvcRef.current) return curriculumSvcRef.current;
+    const db = await getContentDatabase();
+    curriculumSvcRef.current = new CurriculumService(db, getSupabaseClient());
+    return curriculumSvcRef.current;
+  }, []);
+
+  /** Load curriculum steps for the unit (once). */
+  const loadSteps = useCallback(async () => {
+    if (!unitId || stepsRef.current.length > 0) return;
+    const csvc = await getCurriculumService();
+    const bundle = await csvc.getUnitWithSteps(unitId);
+    stepsRef.current = [...bundle.steps].sort(
+      (a, b) => a.orderIndex - b.orderIndex,
+    );
+    stepIndexRef.current = 0;
+  }, [unitId, getCurriculumService]);
+
+  const STEP_LABELS: Record<string, string> = {
+    phrase: '구 듣기',
+    conjugation: '굴절 연습',
+    substitution: '치환 연습',
+  };
+
   const loadNext = useCallback(async () => {
     setLoading(true);
     setError(null);
     setPlayCount(0);
     try {
+      await loadSteps();
       const svc = await getService();
-      // Hot words: most recent unique taps from the last 30 days, capped.
-      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      const hotWords = Array.from(
-        new Set(
-          recentTaps
-            .filter((t) => t.tappedAt >= cutoff)
-            .map((t) => t.word),
-        ),
-      ).slice(0, 20);
-      const next = await svc.getNextSentence('A', cefrLevel, {
-        hotWords,
-        excludeIds: shownIdsRef.current,
-      });
-      setSentence(next);
-      if (next) {
-        shownIdsRef.current = [...shownIdsRef.current, next.id].slice(-50);
-        startSession('A', next.id);
-        // Req 1.3: one automatic playback when the sentence first appears.
-        await audioPlayer.speak(next.textEn);
-        setPlayCount(1);
+
+      const steps = stepsRef.current;
+      let currentStepId: string | undefined;
+
+      if (steps.length > 0) {
+        // Try current step; if exhausted, advance to next step
+        while (stepIndexRef.current < steps.length) {
+          const step = steps[stepIndexRef.current];
+          if (!step) break;
+          currentStepId = step.id;
+          setStepLabel(
+            `${stepIndexRef.current + 1}/3 ${STEP_LABELS[step.stepType] ?? step.stepType}`,
+          );
+
+          const hotWords: string[] = [];
+          const next = await svc.getNextSentence('A', cefrLevel, {
+            hotWords,
+            excludeIds: shownIdsRef.current,
+            curriculumStepId: currentStepId,
+          });
+
+          if (next) {
+            setSentence(next);
+            shownIdsRef.current = [...shownIdsRef.current, next.id].slice(-50);
+            startSession('A', next.id);
+            await audioPlayer.speak(next.textEn, { sentenceId: next.id });
+            setPlayCount(1);
+            return;
+          }
+
+          // No more sentences in this step — advance
+          stepIndexRef.current += 1;
+          shownIdsRef.current = []; // reset exclusion for new step
+        }
+
+        // All steps exhausted
+        setSentence(null);
+        setStepLabel('완료');
+      } else {
+        // No curriculum — legacy random mode
+        setStepLabel(null);
+        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+        const hotWords = Array.from(
+          new Set(
+            recentTaps
+              .filter((t) => t.tappedAt >= cutoff)
+              .map((t) => t.word),
+          ),
+        ).slice(0, 20);
+        const next = await svc.getNextSentence('A', cefrLevel, {
+          hotWords,
+          excludeIds: shownIdsRef.current,
+        });
+        setSentence(next);
+        if (next) {
+          shownIdsRef.current = [...shownIdsRef.current, next.id].slice(-50);
+          startSession('A', next.id);
+          await audioPlayer.speak(next.textEn, { sentenceId: next.id });
+          setPlayCount(1);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [cefrLevel, getService, recentTaps, startSession]);
+  }, [cefrLevel, getService, loadSteps, recentTaps, startSession]);
 
   useEffect(() => {
     void loadNext();
@@ -121,7 +189,7 @@ export default function TrackASessionScreen() {
 
   const handlePlay = useCallback(async () => {
     if (!sentence) return;
-    await audioPlayer.speak(sentence.textEn);
+    await audioPlayer.speak(sentence.textEn, { sentenceId: sentence.id });
     setPlayCount((n) => n + 1);
   }, [sentence]);
 
@@ -178,6 +246,11 @@ export default function TrackASessionScreen() {
           </View>
         ) : sentence ? (
           <>
+            {stepLabel && (
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepBadgeText}>{stepLabel}</Text>
+              </View>
+            )}
             <SentenceCard
               textEn={sentence.textEn}
               textKo={sentence.textKo}
@@ -202,10 +275,26 @@ export default function TrackASessionScreen() {
           </>
         ) : (
           <View style={styles.center}>
-            <Text style={styles.emptyTitle}>아직 내 레벨에 맞는 문장이 없어요.</Text>
-            <Text style={styles.emptyDetail}>
-              내 탭에서 레벨을 조정하거나, 콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
-            </Text>
+            {stepLabel === '완료' ? (
+              <>
+                <Text style={styles.emptyTitle}>이 단원을 모두 학습했어요! 🎉</Text>
+                <Pressable
+                  onPress={() => navigation.goBack()}
+                  accessibilityRole="button"
+                  accessibilityLabel="단원 목록으로 돌아가기"
+                  style={styles.retry}
+                >
+                  <Text style={styles.retryText}>단원 목록으로</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.emptyTitle}>아직 내 레벨에 맞는 문장이 없어요.</Text>
+                <Text style={styles.emptyDetail}>
+                  내 탭에서 레벨을 조정하거나, 콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
+                </Text>
+              </>
+            )}
           </View>
         )}
       </ScrollView>
@@ -267,6 +356,18 @@ function makeStyles(theme: Theme) {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
       textAlign: 'center',
+    },
+    stepBadge: {
+      alignSelf: 'flex-start',
+      backgroundColor: theme.colors.primary,
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: 4,
+      borderRadius: theme.radius.sm,
+    },
+    stepBadgeText: {
+      ...theme.typography.caption,
+      color: theme.colors.primaryOn,
+      fontWeight: '600',
     },
   });
 }

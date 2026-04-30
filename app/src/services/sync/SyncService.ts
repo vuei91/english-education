@@ -130,6 +130,55 @@ export class SyncService {
     });
   }
 
+  /**
+   * Enqueue curriculum progress for eventual upload to Supabase.
+   *
+   * Signature only (curriculum-foundation Task 11.1). The concrete
+   * server-side target table (`user_curriculum_progress`) is defined in
+   * the Sync spec, not here; once it lands, the body below should be
+   * rewritten to enqueue a typed `LearningEvent` through
+   * `SyncQueueRepository.enqueue` the same way user_sentence_progress
+   * does.
+   *
+   * For now we:
+   *   - Accept the call so `useProgressStore.markStepCompleted`
+   *     (Task 10.3) has a real attachment point (Req 6.7).
+   *   - Write a raw row into `sync_queue` with a placeholder
+   *     `table_name` of `'user_curriculum_progress_pending'` — the
+   *     Sync spec picks these up, rewrites the table_name, and drains
+   *     them through the normal upload path.
+   *   - Do *not* touch the network. A runtime flush of a pending row
+   *     would be a no-op today because the table_name is not one of
+   *     the known `ServerTable` values.
+   *
+   * TODO(sync-spec): replace this body with a proper
+   * `SyncQueueRepository.enqueue({ op: 'upsert', table:
+   *   'user_curriculum_progress', payload: {...} })` call once the
+   * matching server table + typed union are defined.
+   */
+  async queueCurriculumProgress(
+    userId: string,
+    payload: {
+      completedUnitIds: readonly string[];
+      completedStepIds: readonly string[];
+    },
+  ): Promise<void> {
+    const body = {
+      user_id: userId,
+      completed_unit_ids: payload.completedUnitIds,
+      completed_step_ids: payload.completedStepIds,
+      updated_at: new Date().toISOString(),
+    };
+    await this.db.runAsync(
+      `INSERT INTO sync_queue (op, table_name, payload_json, enqueued_at, retry_count)
+       VALUES (?, ?, ?, ?, 0);`,
+      'upsert',
+      'user_curriculum_progress_pending',
+      JSON.stringify(body),
+      Date.now(),
+    );
+  }
+
   private async uploadOne(row: QueuedEvent): Promise<void> {
     if (row.op === 'upsert') {
       const { error } = await this.supabase

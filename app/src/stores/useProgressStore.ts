@@ -23,6 +23,55 @@ const MAX_HEARTS = 5;
 
 export const DAILY_GOAL_OPTIONS: readonly number[] = [5, 10, 20, 30] as const;
 
+// ---------------------------------------------------------------------------
+// SyncService binding (curriculum-foundation Task 10.4 / Task 11 entry point)
+//
+// `markStepCompleted` needs to enqueue curriculum progress for eventual
+// upload (Req 6.7) but importing `SyncService` here would create a cycle:
+//    services/sync ─► stores (existing consumers)
+//    stores/useProgressStore ─► services/sync (NEW import)
+// Instead we expose a tiny injection seam. At app boot, the container
+// that instantiates SyncService calls `bindCurriculumProgressSync(fn)`
+// with a closure that forwards to `syncService.queueCurriculumProgress`.
+// Tests and cold boots leave it unbound — the `markStepCompleted` action
+// still completes, it just skips the queue write. The actual network
+// shape is declared in Task 11.1.
+//
+type CurriculumProgressPayload = {
+  completedUnitIds: readonly string[];
+  completedStepIds: readonly string[];
+};
+
+type CurriculumProgressSyncFn = (
+  payload: CurriculumProgressPayload,
+) => void | Promise<void>;
+
+let boundSync: CurriculumProgressSyncFn | null = null;
+
+/**
+ * Connect `useProgressStore.markStepCompleted` to a SyncService-backed
+ * enqueue. Call once from the app shell after SyncService is ready; pass
+ * `null` to unbind (useful in tests). No-ops when called twice with the
+ * same reference.
+ */
+export function bindCurriculumProgressSync(
+  fn: CurriculumProgressSyncFn | null,
+): void {
+  boundSync = fn;
+}
+
+async function queueCurriculumProgressViaBinding(
+  payload: CurriculumProgressPayload,
+): Promise<void> {
+  if (!boundSync) return;
+  try {
+    await boundSync(payload);
+  } catch {
+    // Sync is best-effort; the local state is the source of truth and
+    // the next flush will pick the row up from the queue anyway.
+  }
+}
+
 /**
  * Default "pattern master" threshold (Req 2.7). Exported so the UI layer
  * (PatternDrillPanel's badge banner) can cite the exact same number in
@@ -65,10 +114,32 @@ type PersistedShape = {
    * backward-compat story as drillCompletions.
    */
   patternBadges: EarnedBadges;
+  /**
+   * Completed curriculum units (ids of `curriculum_unit`). Stored as
+   * `string[]` on disk because JSON cannot serialise `Set`; the
+   * in-memory shape in `ProgressState` is `Set<string>` so membership
+   * checks stay O(1) (design D3). Pre-curriculum persist payloads
+   * don't carry this field and are merged against `initialPersisted`
+   * in `hydrate` (Req 6.7).
+   */
+  completedUnitIds: string[];
+  /** Completed curriculum steps — same storage strategy as units. (Req 6.7) */
+  completedStepIds: string[];
 };
 
-export type ProgressState = PersistedShape & {
+/**
+ * Runtime state. Curriculum completion lives as `Set<string>` for fast
+ * `has()` lookups on every Track A/B render (design D3). Serialisation
+ * converts to `string[]` in `snapshot` and back via `new Set(array)` in
+ * `hydrate`.
+ */
+export type ProgressState = Omit<
+  PersistedShape,
+  'completedUnitIds' | 'completedStepIds'
+> & {
   hydrated: boolean;
+  completedUnitIds: Set<string>;
+  completedStepIds: Set<string>;
 };
 
 export type ProgressActions = {
@@ -100,6 +171,28 @@ export type ProgressActions = {
   recordDrillCompletion: (originSentenceId: string, today?: string) => boolean;
   /** True when `originSentenceId` has an entry in `patternBadges`. */
   hasPatternBadge: (originSentenceId: string) => boolean;
+  /**
+   * Mark a curriculum step completed (Req 6.5). `allStepIdsOfUnit` is
+   * the full step-id list of the owning unit — when every id is in
+   * `completedStepIds` after the insert, the unit itself is also
+   * marked complete (Req 6.6) and the returned `unitCompleted` flag
+   * flips to `true` so the caller can trigger celebratory UI / an
+   * analytics event.
+   *
+   * Idempotent: re-completing an already-completed step is a no-op
+   * and returns `{ unitCompleted: false }` (we don't want a second
+   * celebration on replay).
+   *
+   * Persistence: every call flushes to AsyncStorage, and a best-effort
+   * `SyncService.queueCurriculumProgress` call lets the Sync spec pick
+   * it up later. The sync call is wired through `bindSyncService` —
+   * unbound stores (tests, cold boot) just skip that leg.
+   */
+  markStepCompleted: (
+    unitId: string,
+    stepId: string,
+    allStepIdsOfUnit: readonly string[],
+  ) => { unitCompleted: boolean };
   hydrate: () => Promise<void>;
   /** Test-only: wipe everything (both memory + disk). */
   reset: () => void;
@@ -117,10 +210,14 @@ const initialPersisted: PersistedShape = {
   goalHitToday: false,
   drillCompletions: {},
   patternBadges: {},
+  completedUnitIds: [],
+  completedStepIds: [],
 };
 
 const initialState: ProgressState = {
   ...initialPersisted,
+  completedUnitIds: new Set<string>(),
+  completedStepIds: new Set<string>(),
   hydrated: false,
 };
 
@@ -166,6 +263,9 @@ function snapshot(state: ProgressState): PersistedShape {
     goalHitToday: state.goalHitToday,
     drillCompletions: state.drillCompletions,
     patternBadges: state.patternBadges,
+    // Convert Sets → arrays for JSON. `hydrate` does the inverse.
+    completedUnitIds: Array.from(state.completedUnitIds),
+    completedStepIds: Array.from(state.completedStepIds),
   };
 }
 
@@ -283,11 +383,67 @@ export const useProgressStore = create<ProgressState & ProgressActions>(
       return get().patternBadges[originSentenceId] !== undefined;
     },
 
+    markStepCompleted: (unitId, stepId, allStepIdsOfUnit) => {
+      const before = get();
+
+      // Idempotent: if the step is already completed, don't re-run the
+      // unit-completion detector. Re-granting a unit completion would
+      // double-celebrate, and we'd also re-queue a no-op sync row.
+      if (before.completedStepIds.has(stepId)) {
+        return { unitCompleted: false };
+      }
+
+      const nextStepIds = new Set(before.completedStepIds);
+      nextStepIds.add(stepId);
+
+      // Unit is complete only the first time *every* declared step is
+      // in the set. The caller declares the full step-id list so we
+      // don't have to reach into the curriculum catalog from inside
+      // the store (keeps the dependency graph one-way: curriculum →
+      // progress, never the other direction).
+      const unitCompleted =
+        !before.completedUnitIds.has(unitId) &&
+        allStepIdsOfUnit.every((id) => nextStepIds.has(id));
+
+      const nextUnitIds = unitCompleted
+        ? new Set(before.completedUnitIds).add(unitId)
+        : before.completedUnitIds;
+
+      set({
+        completedStepIds: nextStepIds,
+        completedUnitIds: nextUnitIds,
+      });
+      // AsyncStorage write is best-effort; next launch will re-read the
+      // previous good snapshot if this flight fails (same policy as the
+      // other actions in this store).
+      void writePersisted(snapshot(get()));
+
+      // Signature is declared on the SyncService side by
+      // curriculum-foundation Task 11.1. We call through the binding
+      // module so this store never imports SyncService directly (avoids
+      // the circular `services → stores → services` dependency). The
+      // binding is a no-op until Task 11 wires a concrete service in.
+      void queueCurriculumProgressViaBinding({
+        completedUnitIds: Array.from(nextUnitIds),
+        completedStepIds: Array.from(nextStepIds),
+      });
+
+      return { unitCompleted };
+    },
+
     hydrate: async () => {
       const persisted = await readPersisted();
-      set({
+      const merged: PersistedShape = {
         ...initialPersisted,
         ...persisted,
+      };
+      set({
+        ...merged,
+        // Re-hydrate Set<string> from the persisted `string[]` shape
+        // (design D3). Defensive fallback to `[]` handles older payloads
+        // written before curriculum-foundation rolled out.
+        completedUnitIds: new Set(merged.completedUnitIds ?? []),
+        completedStepIds: new Set(merged.completedStepIds ?? []),
         hydrated: true,
       });
       // After hydrating, run a reconcile pass so the UI never shows stale
@@ -296,7 +452,13 @@ export const useProgressStore = create<ProgressState & ProgressActions>(
     },
 
     reset: () => {
-      set(initialState);
+      // Fresh Sets on every reset — callers that stash the old reference
+      // should not observe mutations via a stale pointer.
+      set({
+        ...initialState,
+        completedUnitIds: new Set<string>(),
+        completedStepIds: new Set<string>(),
+      });
       void AsyncStorage.removeItem(STORAGE_KEY);
     },
   }),

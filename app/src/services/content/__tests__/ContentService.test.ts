@@ -83,6 +83,11 @@ describe('ContentService.getNextSentence', () => {
       p_cefr: 'B1',
       p_hot_words: ['passport', 'latte'],
       p_exclude_ids: ['abc'],
+      // curriculum-foundation Task 8.1 added this arg. When the caller
+      // omits `curriculumStepId` we pass `null`, preserving the
+      // pre-curriculum RPC behaviour (Req 5.3). The step-filtered case
+      // gets its own dedicated test in Task 15.
+      p_curriculum_step_id: null,
     });
   });
 
@@ -103,6 +108,126 @@ describe('ContentService.getNextSentence', () => {
     const { client } = createFakeSupabase([]);
     const svc = new ContentService(db, client);
     expect(await svc.getNextSentence('A', 'A2')).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Curriculum step filtering (Tasks 15.1 – 15.3)                     */
+/* ------------------------------------------------------------------ */
+
+describe('ContentService.getNextSentence — curriculum step filtering', () => {
+  const stepId = 'step-phrase-001';
+
+  const curriculumRow = {
+    id: 's-cur-1',
+    track: 'A',
+    text_en: 'I like apples.',
+    text_ko: '나는 사과를 좋아해.',
+    cefr_level: 'A1',
+    situation: 'food',
+    source: 'custom',
+    license: 'CC0',
+    curriculum_step_id: stepId,
+    is_phrase: false,
+  };
+
+  const phraseRow = {
+    ...curriculumRow,
+    id: 's-cur-2',
+    text_en: 'a red apple',
+    text_ko: null,
+    curriculum_step_id: stepId,
+    is_phrase: true,
+  };
+
+  // Task 15.1 — Req 5.1, 5.2: curriculumStepId is forwarded to the RPC
+  it('passes p_curriculum_step_id to the RPC when curriculumStepId is provided (Req 5.1, 5.2)', async () => {
+    const { db } = createFakeDb();
+    const { client, rpc } = createFakeSupabase([curriculumRow]);
+    const svc = new ContentService(db, client);
+
+    await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+
+    expect(rpc).toHaveBeenCalledWith('pick_next_sentence', {
+      p_track: 'A',
+      p_cefr: 'A1',
+      p_hot_words: [],
+      p_exclude_ids: [],
+      p_curriculum_step_id: stepId,
+    });
+  });
+
+  // Task 15.1 — Req 5.5: is_phrase sentences mapped identically
+  it('maps curriculum_step_id and is_phrase fields into the Sentence (Req 5.5)', async () => {
+    const { db } = createFakeDb();
+    const { client } = createFakeSupabase([curriculumRow]);
+    const svc = new ContentService(db, client);
+
+    const sentence = await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+
+    expect(sentence).not.toBeNull();
+    expect(sentence!.curriculumStepId).toBe(stepId);
+    expect(sentence!.isPhrase).toBe(false);
+  });
+
+  it('maps is_phrase: true for phrase-type sentences (Req 5.5)', async () => {
+    const { db } = createFakeDb();
+    const { client } = createFakeSupabase([phraseRow]);
+    const svc = new ContentService(db, client);
+
+    const sentence = await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+
+    expect(sentence).not.toBeNull();
+    expect(sentence!.isPhrase).toBe(true);
+    expect(sentence!.curriculumStepId).toBe(stepId);
+  });
+
+  // Task 15.2 — Req 5.3: backward compatibility regression test
+  it('passes p_curriculum_step_id as null when curriculumStepId is omitted (Req 5.3)', async () => {
+    const { db } = createFakeDb();
+    const { client, rpc } = createFakeSupabase([curriculumRow]);
+    const svc = new ContentService(db, client);
+
+    await svc.getNextSentence('A', 'A1');
+
+    expect(rpc).toHaveBeenCalledWith(
+      'pick_next_sentence',
+      expect.objectContaining({ p_curriculum_step_id: null }),
+    );
+  });
+
+  it('returns a valid Sentence with default isPhrase when row lacks curriculum fields (Req 5.3)', async () => {
+    const legacyRow = {
+      id: 's-legacy',
+      track: 'A',
+      text_en: 'Hello world.',
+      text_ko: '안녕 세상.',
+      cefr_level: 'A1',
+      situation: null,
+      source: 'tatoeba',
+      license: 'CC-BY-2.0-FR',
+      // no curriculum_step_id or is_phrase — simulates pre-migration row
+    };
+    const { db } = createFakeDb();
+    const { client } = createFakeSupabase([legacyRow]);
+    const svc = new ContentService(db, client);
+
+    const sentence = await svc.getNextSentence('A', 'A1');
+
+    expect(sentence).not.toBeNull();
+    expect(sentence!.curriculumStepId).toBeNull();
+    expect(sentence!.isPhrase).toBe(false);
+  });
+
+  // Task 15.3 — Req 5.4: no fallback when curriculumStepId yields empty
+  it('returns null when curriculumStepId is provided but RPC yields no rows (Req 5.4)', async () => {
+    const { db } = createFakeDb();
+    const { client } = createFakeSupabase([]);  // empty result
+    const svc = new ContentService(db, client);
+
+    const result = await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+
+    expect(result).toBeNull();
   });
 });
 

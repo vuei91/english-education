@@ -19,3 +19,125 @@ export type TrackBStep = 'chunking' | 'listen' | 'shadowing' | 'summary';
 
 /** Playback speed multipliers exposed in Track B (Req 5.2). */
 export type PlaybackSpeed = 0.5 | 0.75 | 1 | 1.25;
+
+// ---------------------------------------------------------------------------
+// Curriculum foundation (curriculum-foundation spec, Tasks 3.1~3.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Grammar track the unit opens up. A single unit opens at most one point on
+ * one track; some units open nothing new (review units) and carry `null`.
+ * (Req 3.2)
+ */
+export type GrammarTrack =
+  | 'tense'
+  | 'sentence_type'
+  | 'verbal'
+  | 'conjunction';
+
+/**
+ * Free-form grammar point identifier (e.g. 'T1', 'T2', 'S1'). The curated
+ * enum is enforced at runtime by a validator rather than in the type system,
+ * since new points can be added without a code deploy. (Req 3.2)
+ */
+export type GrammarPoint = string;
+
+/** `null` when the unit is a review unit and opens no new grammar. (Req 3.2) */
+export type UnitOpens =
+  | { track: GrammarTrack; point: GrammarPoint }
+  | null;
+
+/** Step ordering is strict: phrase (1) → conjugation (2) → substitution (3). (Req 3.3) */
+export type CurriculumStepType = 'phrase' | 'conjugation' | 'substitution';
+
+/** Part-of-speech tag carried by each `VocabPackEntry`. `'chunk'` marks
+ *  multi-word units (e.g. phrasal verbs, collocations). (Req 3.4) */
+export type VocabPackPos = 'noun' | 'verb' | 'adj' | 'chunk';
+
+/**
+ * A curriculum unit groups three curriculum steps that share a theme and
+ * a single vocab pack.
+ * `prerequisiteIds` is declarative — unlock enforcement is opt-in via
+ * `CurriculumService.isUnitUnlocked({ enforce: true })`. (Req 3.1)
+ */
+export type CurriculumUnit = {
+  id: string;
+  orderIndex: number;
+  titleKo: string;
+  cefrLevel: CEFRLevel;
+  opens: UnitOpens;
+  vocabPackId: string;
+  theme: string;
+  prerequisiteIds: readonly string[];
+};
+
+/** Ordered step inside a unit. `orderIndex` mirrors the stepType ordering and
+ *  is constrained to 1/2/3 so the compiler can catch off-by-one mistakes. (Req 3.1) */
+export type CurriculumStep = {
+  id: string;
+  unitId: string;
+  stepType: CurriculumStepType;
+  orderIndex: 1 | 2 | 3;
+};
+
+/**
+ * A single row inside a vocab pack. `isChunk` and `pos === 'chunk'` stay in
+ * sync by construction — the `isChunkEntry` type guard relies on that
+ * invariant.
+ * `phrasalOf` / `collocates` are optional hints used by pack builders; they
+ * may be `null` or absent for plain single-word entries. (Req 3.5)
+ */
+export type VocabPackEntry = {
+  word: string;
+  isChunk: boolean;
+  pos: VocabPackPos;
+  role: 'new' | 'review';
+  phrasalOf?: string | null;
+  collocates?: readonly string[] | null;
+};
+
+/** A vocab pack is immutable once seeded. `size` is the server-authoritative
+ *  count and should equal `entries.length`. (Req 3.5) */
+export type VocabPack = {
+  id: string;
+  titleKo: string;
+  size: number;
+  entries: readonly VocabPackEntry[];
+};
+
+/** Narrowed form of `VocabPackEntry` for multi-word chunks. (Req 3.5) */
+export type ChunkEntry = VocabPackEntry & { isChunk: true; pos: 'chunk' };
+
+/**
+ * Type guard: narrows a `VocabPackEntry` to `ChunkEntry`. We require *both*
+ * `isChunk === true` and `pos === 'chunk'` so a malformed row (one flag
+ * without the other) is not silently treated as a chunk. (Req 3.5)
+ */
+export function isChunkEntry(entry: VocabPackEntry): entry is ChunkEntry {
+  return entry.isChunk === true && entry.pos === 'chunk';
+}
+
+/**
+ * Sentence — moved here from `ContentService.ts` (curriculum-foundation
+ * Task 3.3). `ContentService` still re-exports this name for backward
+ * compatibility so existing `import { type Sentence } from
+ * '../../services/content'` call sites keep working.
+ *
+ * New fields (Req 2.3, 3.6):
+ *  - `curriculumStepId`: which curriculum step this sentence belongs to, or
+ *    `null`/undefined when the sentence is not yet tied to the curriculum.
+ *  - `isPhrase`: `true` for short phrase-level rows used by Step 1 drills;
+ *    `false` for regular sentences.
+ */
+export type Sentence = {
+  id: string;
+  track: Track;
+  textEn: string;
+  textKo: string | null;
+  cefrLevel: CEFRLevel;
+  situation: string | null;
+  source: string;
+  license: string;
+  curriculumStepId?: string | null;
+  isPhrase: boolean;
+};
