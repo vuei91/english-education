@@ -12,11 +12,14 @@ const LEVELS = [
   { key: 'B1' as const, label: '고급', desc: '완료형 · 분사 · 복합 문장' },
 ] as const;
 
+/**
+ * @deprecated Replaced by DayListScreen in the 100-day curriculum redesign.
+ * Kept for reference; not registered in any navigator.
+ */
 export default function LevelSelectScreen() {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   return (
     <View style={styles.container}>
@@ -26,13 +29,10 @@ export default function LevelSelectScreen() {
         {LEVELS.map((lv) => (
           <Pressable
             key={lv.key}
-            onPress={() => navigation.navigate('UnitList', { level: lv.key })}
+            onPress={() => navigation.navigate('DayList', { chapter: undefined })}
             accessibilityRole="button"
             accessibilityLabel={`${lv.label} 레벨 선택`}
-            style={({ pressed }) => [
-              styles.card,
-              pressed && { opacity: 0.85 },
-            ]}
+            style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
           >
             <Text style={styles.levelBadge}>{lv.key}</Text>
             <View style={styles.cardBody}>

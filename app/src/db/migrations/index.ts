@@ -107,4 +107,18 @@ export const migrations: readonly Migration[] = [
         ON sync_queue (enqueued_at ASC);
     `,
   },
+  {
+    version: 3,
+    name: 'day_progress',
+    up: `
+      -- 100-day curriculum: per-day completion tracking.
+      -- day_number is 1–100 and maps 1:1 to a curriculum_unit.
+      CREATE TABLE IF NOT EXISTS day_progress (
+        day_number  INTEGER NOT NULL PRIMARY KEY,
+        started_at  INTEGER,          -- epoch ms, NULL = not started
+        completed_at INTEGER,         -- epoch ms, NULL = not completed
+        updated_at  INTEGER NOT NULL
+      );
+    `,
+  },
 ];

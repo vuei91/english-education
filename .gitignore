@@ -35,3 +35,7 @@ yarn-error.*
 
 # Playwright MCP 세션 아티팩트 (콘솔 로그/페이지 스냅샷)
 .playwright-mcp/
+
+# 기획 문서 / 시딩 도구 (저작권·내부 자료)
+docs/
+tools/

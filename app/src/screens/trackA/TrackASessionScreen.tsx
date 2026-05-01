@@ -2,14 +2,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { RootStackParamList } from '../../navigation/types';
 import { audioPlayer } from '../../services/audio/audioPlayer';
@@ -22,7 +15,7 @@ import { useTheme, type Theme } from '../../theme';
 import type { CurriculumStep, SentenceFeedback } from '../../types/domain';
 import AudioControls from './AudioControls';
 import FeedbackBar from './FeedbackBar';
-import SentenceCard from './SentenceCard';
+import SentenceCard, { type CardMode } from './SentenceCard';
 
 /**
  * Track A session screen — Req 1.1, 1.3, 1.6, 1.8.
@@ -45,10 +38,10 @@ import SentenceCard from './SentenceCard';
 export default function TrackASessionScreen() {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'TrackASession'>>();
   const unitId = route.params?.unitId;
+  const dayNumber = route.params?.dayNumber;
 
   const cefrLevel = useUserStore((s) => s.cefrLevel);
   const startSession = useSessionStore((s) => s.startSession);
@@ -62,7 +55,30 @@ export default function TrackASessionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [playCount, setPlayCount] = useState(0);
   const [stepLabel, setStepLabel] = useState<string | null>(null);
-  const shownIdsRef = useRef<string[]>([]);
+  /** Current card presentation mode. */
+  const [cardMode, setCardMode] = useState<CardMode>('en-to-ko');
+  /** Progress: how many sentences completed (shown MIN_REPEATS times) in current step. */
+  const [completedCount, setCompletedCount] = useState(0);
+  /** Progress: total sentences in current step. */
+  const [totalInStep, setTotalInStep] = useState(0);
+  /**
+   * Per-sentence exposure count in this session. A sentence is only
+   * excluded from the RPC query after it has been shown
+   * `MIN_REPEATS` times, ensuring every sentence gets practised at
+   * least 3 times before moving on.
+   */
+  const exposureMapRef = useRef<Record<string, number>>({});
+  /** Minimum times each sentence must be shown before it's excluded. */
+  const MIN_REPEATS = 3;
+  /**
+   * Total number of sentences presented so far in this session.
+   * The first few are shown in `en-to-ko` mode (English first) so the
+   * learner gets familiar with the pattern, then the rest switch to
+   * `ko-to-en` (Korean first, English hidden) for active recall.
+   */
+  const sessionCountRef = useRef(0);
+  /** How many sentences to show in en-to-ko mode before switching. */
+  const EN_FIRST_COUNT = 3;
   /** Curriculum steps for the selected unit, loaded once. */
   const stepsRef = useRef<CurriculumStep[]>([]);
   /** Index into stepsRef — advances when a step's sentences are exhausted. */
@@ -90,9 +106,7 @@ export default function TrackASessionScreen() {
     if (!unitId || stepsRef.current.length > 0) return;
     const csvc = await getCurriculumService();
     const bundle = await csvc.getUnitWithSteps(unitId);
-    stepsRef.current = [...bundle.steps].sort(
-      (a, b) => a.orderIndex - b.orderIndex,
-    );
+    stepsRef.current = [...bundle.steps].sort((a, b) => a.orderIndex - b.orderIndex);
     stepIndexRef.current = 0;
   }, [unitId, getCurriculumService]);
 
@@ -102,10 +116,57 @@ export default function TrackASessionScreen() {
     substitution: '치환 연습',
   };
 
+  /**
+   * Present a loaded sentence. The first `EN_FIRST_COUNT` sentences in
+   * the session are shown in `en-to-ko` mode (English text + audio
+   * first) so the learner gets familiar with the pattern. After that,
+   * every sentence switches to `ko-to-en` mode — Korean text is shown
+   * and read aloud, English is hidden behind a reveal button.
+   */
+  const presentSentence = useCallback(
+    async (next: Sentence) => {
+      sessionCountRef.current += 1;
+      const count = sessionCountRef.current;
+
+      const hasKorean = Boolean(next.textKo);
+      const useKoToEn = hasKorean && count > EN_FIRST_COUNT;
+
+      setSentence(next);
+      setCardMode(useKoToEn ? 'ko-to-en' : 'en-to-ko');
+      startSession('A', next.id);
+
+      if (useKoToEn && next.textKo) {
+        // Korean-first mode: read Korean aloud.
+        await audioPlayer.speak(next.textKo, { language: 'ko-KR' });
+        setPlayCount(1);
+      } else {
+        // English-first mode: play English audio immediately.
+        await audioPlayer.speak(next.textEn, { sentenceId: next.id });
+        setPlayCount(1);
+      }
+    },
+    [startSession],
+  );
+
   const loadNext = useCallback(async () => {
     setLoading(true);
     setError(null);
     setPlayCount(0);
+
+    /** Build excludeIds: only sentences shown >= MIN_REPEATS times. */
+    const getExcludeIds = (): string[] =>
+      Object.entries(exposureMapRef.current)
+        .filter(([, count]) => count >= MIN_REPEATS)
+        .map(([id]) => id);
+
+    /** Record that a sentence was shown once more and update progress. */
+    const recordExposure = (id: string) => {
+      exposureMapRef.current[id] = (exposureMapRef.current[id] ?? 0) + 1;
+      // Update completed count: sentences that reached MIN_REPEATS.
+      const done = Object.values(exposureMapRef.current).filter((c) => c >= MIN_REPEATS).length;
+      setCompletedCount(done);
+    };
+
     try {
       await loadSteps();
       const svc = await getService();
@@ -126,22 +187,26 @@ export default function TrackASessionScreen() {
           const hotWords: string[] = [];
           const next = await svc.getNextSentence('A', cefrLevel, {
             hotWords,
-            excludeIds: shownIdsRef.current,
+            excludeIds: getExcludeIds(),
             curriculumStepId: currentStepId,
           });
 
           if (next) {
-            setSentence(next);
-            shownIdsRef.current = [...shownIdsRef.current, next.id].slice(-50);
-            startSession('A', next.id);
-            await audioPlayer.speak(next.textEn, { sentenceId: next.id });
-            setPlayCount(1);
+            // On first sentence of a step, fetch total count for progress.
+            if (Object.keys(exposureMapRef.current).length === 0) {
+              const count = await svc.countSentencesInStep(currentStepId!);
+              setTotalInStep(count);
+              setCompletedCount(0);
+            }
+            recordExposure(next.id);
+            await presentSentence(next);
             return;
           }
 
           // No more sentences in this step — advance
           stepIndexRef.current += 1;
-          shownIdsRef.current = []; // reset exclusion for new step
+          // Reset exposure map for the new step so sentences start fresh.
+          exposureMapRef.current = {};
         }
 
         // All steps exhausted
@@ -152,22 +217,17 @@ export default function TrackASessionScreen() {
         setStepLabel(null);
         const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
         const hotWords = Array.from(
-          new Set(
-            recentTaps
-              .filter((t) => t.tappedAt >= cutoff)
-              .map((t) => t.word),
-          ),
+          new Set(recentTaps.filter((t) => t.tappedAt >= cutoff).map((t) => t.word)),
         ).slice(0, 20);
         const next = await svc.getNextSentence('A', cefrLevel, {
           hotWords,
-          excludeIds: shownIdsRef.current,
+          excludeIds: getExcludeIds(),
         });
-        setSentence(next);
         if (next) {
-          shownIdsRef.current = [...shownIdsRef.current, next.id].slice(-50);
-          startSession('A', next.id);
-          await audioPlayer.speak(next.textEn, { sentenceId: next.id });
-          setPlayCount(1);
+          recordExposure(next.id);
+          await presentSentence(next);
+        } else {
+          setSentence(null);
         }
       }
     } catch (err) {
@@ -175,7 +235,7 @@ export default function TrackASessionScreen() {
     } finally {
       setLoading(false);
     }
-  }, [cefrLevel, getService, loadSteps, recentTaps, startSession]);
+  }, [cefrLevel, getService, loadSteps, presentSentence, recentTaps]);
 
   useEffect(() => {
     void loadNext();
@@ -191,6 +251,23 @@ export default function TrackASessionScreen() {
     if (!sentence) return;
     await audioPlayer.speak(sentence.textEn, { sentenceId: sentence.id });
     setPlayCount((n) => n + 1);
+  }, [sentence]);
+
+  /**
+   * `ko-to-en` mode: called when the learner taps "영어 보기" to reveal
+   * the English answer. Plays the audio so they can hear the correct
+   * pronunciation right after seeing the text.
+   */
+  const handleRevealEnglish = useCallback(async () => {
+    if (!sentence) return;
+    await audioPlayer.speak(sentence.textEn, { sentenceId: sentence.id });
+    setPlayCount((n) => n + 1);
+  }, [sentence]);
+
+  /** Replay the Korean sentence via Korean TTS. */
+  const handlePlayKorean = useCallback(async () => {
+    if (!sentence?.textKo) return;
+    await audioPlayer.speak(sentence.textKo, { language: 'ko-KR' });
   }, [sentence]);
 
   const handleWordPress = useCallback(
@@ -221,10 +298,7 @@ export default function TrackASessionScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color={theme.colors.primary} />
@@ -247,14 +321,28 @@ export default function TrackASessionScreen() {
         ) : sentence ? (
           <>
             {stepLabel && (
-              <View style={styles.stepBadge}>
-                <Text style={styles.stepBadgeText}>{stepLabel}</Text>
+              <View style={styles.stepHeader}>
+                <View style={styles.stepBadge}>
+                  <Text style={styles.stepBadgeText}>{stepLabel}</Text>
+                </View>
+                {totalInStep > 0 && (
+                  <Text style={styles.progressText}>
+                    {completedCount} / {totalInStep} 완료
+                  </Text>
+                )}
               </View>
             )}
             <SentenceCard
               textEn={sentence.textEn}
               textKo={sentence.textKo}
               onWordPress={handleWordPress}
+              mode={cardMode}
+              onRevealEnglish={() => {
+                void handleRevealEnglish();
+              }}
+              onPlayKorean={() => {
+                void handlePlayKorean();
+              }}
             />
             <AudioControls onPlay={handlePlay} playCount={playCount} />
             <FeedbackBar
@@ -357,6 +445,11 @@ function makeStyles(theme: Theme) {
       color: theme.colors.textMuted,
       textAlign: 'center',
     },
+    stepHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
     stepBadge: {
       alignSelf: 'flex-start',
       backgroundColor: theme.colors.primary,
@@ -368,6 +461,10 @@ function makeStyles(theme: Theme) {
       ...theme.typography.caption,
       color: theme.colors.primaryOn,
       fontWeight: '600',
+    },
+    progressText: {
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
     },
   });
 }

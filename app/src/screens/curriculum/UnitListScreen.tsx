@@ -2,14 +2,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { RootStackParamList } from '../../navigation/types';
 import type { CurriculumUnit } from '../../types/domain';
@@ -18,13 +11,16 @@ import { getSupabaseClient } from '../../lib/supabase';
 import { getContentDatabase } from '../../db';
 import { useTheme, type Theme } from '../../theme';
 
+/**
+ * @deprecated Replaced by DayListScreen in the 100-day curriculum redesign.
+ * Kept for reference; not registered in any navigator.
+ */
 export default function UnitListScreen() {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const route = useRoute<RouteProp<RootStackParamList, 'UnitList'>>();
-  const { level } = route.params;
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'DayList'>>();
+  const filterChapter = route.params?.chapter;
 
   const [units, setUnits] = useState<CurriculumUnit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,14 +32,14 @@ export default function UnitListScreen() {
     try {
       const db = await getContentDatabase();
       const svc = new CurriculumService(db, getSupabaseClient());
-      const data = await svc.listUnits(level);
+      const data = await svc.listUnits();
       setUnits(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [level]);
+  }, []);
 
   useEffect(() => {
     void loadUnits();
@@ -60,10 +56,7 @@ export default function UnitListScreen() {
         }
         accessibilityRole="button"
         accessibilityLabel={`${item.titleKo} 단원 시작`}
-        style={({ pressed }) => [
-          styles.unitCard,
-          pressed && { opacity: 0.85 },
-        ]}
+        style={({ pressed }) => [styles.unitCard, pressed && { opacity: 0.85 }]}
       >
         <View style={styles.unitIndex}>
           <Text style={styles.unitIndexText}>{item.orderIndex}</Text>
@@ -71,9 +64,7 @@ export default function UnitListScreen() {
         <View style={styles.unitBody}>
           <Text style={styles.unitTitle}>{item.titleKo}</Text>
           <Text style={styles.unitMeta}>
-            {item.opens
-              ? `${item.opens.track} · ${item.opens.point}`
-              : '팩 확장'}
+            {item.opens ? `${item.opens.track} · ${item.opens.point}` : '팩 확장'}
             {' · '}
             {item.theme}
           </Text>
@@ -111,9 +102,7 @@ export default function UnitListScreen() {
   if (units.length === 0) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>
-          {level} 레벨에 아직 단원이 없어요.
-        </Text>
+        <Text style={styles.errorText}>아직 단원이 없어요.</Text>
       </View>
     );
   }

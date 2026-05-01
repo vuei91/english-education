@@ -1,20 +1,15 @@
 import { useNavigation } from '@react-navigation/native';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { useEffect, useMemo } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import type { RootTabsParamList } from '../navigation/types';
-import {
-  useHydrateProgressStore,
-  useProgressStore,
-  useUserStore,
-} from '../stores';
+import type { RootStackParamList } from '../navigation/types';
+import type { CurriculumDay } from '../types/domain';
+import { TOTAL_DAYS } from '../types/domain';
+import { CurriculumService } from '../services/curriculum/CurriculumService';
+import { getSupabaseClient } from '../lib/supabase';
+import { getContentDatabase } from '../db';
+import { useHydrateProgressStore, useProgressStore } from '../stores';
 import { useTheme, type Theme } from '../theme';
 
 /**
@@ -31,26 +26,47 @@ import { useTheme, type Theme } from '../theme';
 export default function DashboardScreen() {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
-  const navigation =
-    useNavigation<BottomTabNavigationProp<RootTabsParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const hydrated = useHydrateProgressStore();
   const reconcile = useProgressStore((s) => s.reconcileForToday);
-  const preferredTrack = useUserStore((s) => s.preferredTrack);
   const dailyGoal = useProgressStore((s) => s.dailyGoal);
-  const sentencesCompletedToday = useProgressStore(
-    (s) => s.sentencesCompletedToday,
-  );
-  const totalSentencesCompleted = useProgressStore(
-    (s) => s.totalSentencesCompleted,
-  );
+  const sentencesCompletedToday = useProgressStore((s) => s.sentencesCompletedToday);
+  const totalSentencesCompleted = useProgressStore((s) => s.totalSentencesCompleted);
   const currentStreak = useProgressStore((s) => s.currentStreak);
   const bestStreak = useProgressStore((s) => s.bestStreak);
   const goalHitToday = useProgressStore((s) => s.goalHitToday);
+  const completedUnitIds = useProgressStore((s) => s.completedUnitIds);
+
+  const [currentDay, setCurrentDay] = useState<CurriculumDay | null>(null);
+  const [completedDays, setCompletedDays] = useState(0);
+  const serviceRef = useRef<CurriculumService | null>(null);
 
   useEffect(() => {
     if (hydrated) reconcile();
   }, [hydrated, reconcile]);
+
+  /** Load the current Day from the 100-day curriculum. */
+  const loadCurrentDay = useCallback(async () => {
+    try {
+      if (!serviceRef.current) {
+        const db = await getContentDatabase();
+        serviceRef.current = new CurriculumService(db, getSupabaseClient());
+      }
+      const day = await serviceRef.current.getCurrentDay(completedUnitIds);
+      setCurrentDay(day);
+
+      const allDays = await serviceRef.current.listDays();
+      const count = allDays.filter((d) => completedUnitIds.has(d.unitId)).length;
+      setCompletedDays(count);
+    } catch {
+      // Silently fail — dashboard still shows other stats.
+    }
+  }, [completedUnitIds]);
+
+  useEffect(() => {
+    if (hydrated) void loadCurrentDay();
+  }, [hydrated, loadCurrentDay]);
 
   if (!hydrated) {
     return (
@@ -60,10 +76,7 @@ export default function DashboardScreen() {
     );
   }
 
-  const progressRatio = Math.min(
-    1,
-    sentencesCompletedToday / Math.max(1, dailyGoal),
-  );
+  const progressRatio = Math.min(1, sentencesCompletedToday / Math.max(1, dailyGoal));
   const remaining = Math.max(0, dailyGoal - sentencesCompletedToday);
 
   return (
@@ -78,65 +91,73 @@ export default function DashboardScreen() {
           accessibilityRole="progressbar"
           accessibilityLabel={`오늘 진도 ${sentencesCompletedToday} / ${dailyGoal}`}
         >
-          <View
-            style={[styles.progressFill, { width: `${progressRatio * 100}%` }]}
-          />
+          <View style={[styles.progressFill, { width: `${progressRatio * 100}%` }]} />
         </View>
         {goalHitToday ? (
           <Text style={styles.goalHit}>오늘 목표 달성 ✨</Text>
         ) : (
-          <Text style={styles.remaining}>
-            목표까지 {remaining}문장 남았어요.
-          </Text>
+          <Text style={styles.remaining}>목표까지 {remaining}문장 남았어요.</Text>
         )}
       </View>
 
       <View style={styles.statsRow}>
         <StatCard label="스트릭" value={`${currentStreak}일`} theme={theme} />
         <StatCard label="최고" value={`${bestStreak}일`} theme={theme} />
-        <StatCard
-          label="누적"
-          value={`${totalSentencesCompleted}`}
-          theme={theme}
-        />
+        <StatCard label="누적" value={`${totalSentencesCompleted}`} theme={theme} />
+      </View>
+
+      {/* 100일 챌린지 진행률 */}
+      <View style={styles.challengeCard}>
+        <Text style={styles.challengeTitle}>📅 100일 챌린지</Text>
+        <Text style={styles.challengeProgress}>
+          Day {completedDays > 0 ? completedDays : 0} / {TOTAL_DAYS}
+        </Text>
+        <View
+          style={styles.progressTrack}
+          accessibilityRole="progressbar"
+          accessibilityLabel={`100일 중 ${completedDays}일 완료`}
+        >
+          <View
+            style={[styles.progressFill, { width: `${(completedDays / TOTAL_DAYS) * 100}%` }]}
+          />
+        </View>
       </View>
 
       <View style={styles.ctaSection}>
         <Text style={styles.sectionLabel}>학습 시작</Text>
+        {currentDay ? (
+          <Pressable
+            onPress={() =>
+              navigation.navigate('TrackASession', {
+                unitId: currentDay.unitId,
+                unitTitle: currentDay.titleKo,
+                dayNumber: currentDay.dayNumber,
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`Day ${currentDay.dayNumber} ${currentDay.titleKo} 시작`}
+            style={({ pressed }) => [styles.ctaPrimary, pressed && { opacity: 0.85 }]}
+          >
+            <Text style={styles.ctaPrimaryText}>
+              Day {currentDay.dayNumber}. {currentDay.titleKo}
+            </Text>
+            <Text style={styles.ctaPrimarySub}>
+              {currentDay.isReview ? '복습' : currentDay.cefrLevel} · 오늘의 학습
+            </Text>
+          </Pressable>
+        ) : completedDays >= TOTAL_DAYS ? (
+          <View style={styles.ctaPrimary}>
+            <Text style={styles.ctaPrimaryText}>🎉 100일 완주!</Text>
+            <Text style={styles.ctaPrimarySub}>축하합니다! 모든 학습을 완료했어요.</Text>
+          </View>
+        ) : null}
         <Pressable
-          onPress={() =>
-            navigation.navigate(preferredTrack === 'B' ? 'TrackB' : 'TrackA')
-          }
+          onPress={() => navigation.navigate('DayList', {})}
           accessibilityRole="button"
-          accessibilityLabel={`트랙 ${preferredTrack} 이어서 하기`}
-          style={({ pressed }) => [
-            styles.ctaPrimary,
-            pressed && { opacity: 0.85 },
-          ]}
+          accessibilityLabel="100일 커리큘럼 전체 보기"
+          style={({ pressed }) => [styles.ctaSecondary, pressed && { opacity: 0.85 }]}
         >
-          <Text style={styles.ctaPrimaryText}>
-            트랙 {preferredTrack} 이어서
-          </Text>
-          <Text style={styles.ctaPrimarySub}>
-            {preferredTrack === 'A'
-              ? '일상 짧은 문장'
-              : '청킹으로 보는 긴 지문'}
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() =>
-            navigation.navigate(preferredTrack === 'B' ? 'TrackA' : 'TrackB')
-          }
-          accessibilityRole="button"
-          accessibilityLabel={`트랙 ${preferredTrack === 'A' ? 'B' : 'A'} 체험하기`}
-          style={({ pressed }) => [
-            styles.ctaSecondary,
-            pressed && { opacity: 0.85 },
-          ]}
-        >
-          <Text style={styles.ctaSecondaryText}>
-            트랙 {preferredTrack === 'A' ? 'B' : 'A'} 체험해 보기
-          </Text>
+          <Text style={styles.ctaSecondaryText}>100일 커리큘럼 전체 보기</Text>
         </Pressable>
       </View>
     </ScrollView>
@@ -224,6 +245,20 @@ function makeStyles(theme: Theme) {
     statLabel: {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
+    },
+    challengeCard: {
+      backgroundColor: theme.colors.surface,
+      padding: theme.spacing.lg,
+      borderRadius: theme.radius.md,
+      gap: theme.spacing.sm,
+    },
+    challengeTitle: {
+      ...theme.typography.button,
+      color: theme.colors.text,
+    },
+    challengeProgress: {
+      ...theme.typography.heading,
+      color: theme.colors.primary,
     },
     ctaSection: {
       gap: theme.spacing.md,
