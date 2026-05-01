@@ -2,10 +2,7 @@ import type * as SQLite from 'expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { CEFRLevel, Sentence, Track } from '../../types/domain';
-import {
-  parsePatternDrillVariants,
-  type PatternDrillVariants,
-} from './patternDrill';
+import { parsePatternDrillVariants, type PatternDrillVariants } from './patternDrill';
 
 /**
  * `Sentence` lives in `app/src/types/domain` as of curriculum-foundation
@@ -229,6 +226,20 @@ export class ContentService {
     return drill;
   }
 
+  /**
+   * Count the number of production sentences for a given curriculum step.
+   * Used by the session screen to show progress (e.g. "5 / 20").
+   */
+  async countSentencesInStep(curriculumStepId: string): Promise<number> {
+    const { count, error } = await this.supabase
+      .from('sentences')
+      .select('id', { count: 'exact', head: true })
+      .eq('curriculum_step_id', curriculumStepId)
+      .eq('status', 'production');
+    if (error) throw new Error(error.message);
+    return count ?? 0;
+  }
+
   async getRecentTappedWords(limit: number): Promise<RecentTappedWord[]> {
     if (!this.db) return [];
     const rows = await this.db.getAllAsync<{
@@ -257,11 +268,7 @@ export class ContentService {
     const row = await this.db.getFirstAsync<{
       payload_json: string;
       fetched_at: number;
-    }>(
-      `SELECT payload_json, fetched_at FROM content_cache WHERE kind = ? AND key = ?;`,
-      kind,
-      key,
-    );
+    }>(`SELECT payload_json, fetched_at FROM content_cache WHERE kind = ? AND key = ?;`, kind, key);
     if (!row) return null;
     if (Date.now() - row.fetched_at > CACHE_TTL_MS) return null;
     return JSON.parse(row.payload_json) as T;
