@@ -29,11 +29,7 @@ export type PlaybackSpeed = 0.5 | 0.75 | 1 | 1.25;
  * one track; some units open nothing new (review units) and carry `null`.
  * (Req 3.2)
  */
-export type GrammarTrack =
-  | 'tense'
-  | 'sentence_type'
-  | 'verbal'
-  | 'conjunction';
+export type GrammarTrack = 'tense' | 'sentence_type' | 'verbal' | 'conjunction';
 
 /**
  * Free-form grammar point identifier (e.g. 'T1', 'T2', 'S1'). The curated
@@ -43,9 +39,7 @@ export type GrammarTrack =
 export type GrammarPoint = string;
 
 /** `null` when the unit is a review unit and opens no new grammar. (Req 3.2) */
-export type UnitOpens =
-  | { track: GrammarTrack; point: GrammarPoint }
-  | null;
+export type UnitOpens = { track: GrammarTrack; point: GrammarPoint } | null;
 
 /** Step ordering is strict: phrase (1) → conjugation (2) → substitution (3). (Req 3.3) */
 export type CurriculumStepType = 'phrase' | 'conjugation' | 'substitution';
@@ -141,3 +135,52 @@ export type Sentence = {
   curriculumStepId?: string | null;
   isPhrase: boolean;
 };
+
+// ---------------------------------------------------------------------------
+// 100-day curriculum (curriculum-100days.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * A Day wraps a single `CurriculumUnit` with ordering and chapter metadata.
+ * The Day number (1–100) is the user-facing progression counter.
+ * `unitId` links 1:1 to the existing `CurriculumUnit` so the 3-step
+ * learning pipeline (Phrase → Conjugation → Substitution) is reused as-is.
+ */
+export type CurriculumDay = {
+  id: string;
+  dayNumber: number;
+  chapter: 1 | 2 | 3;
+  titleKo: string;
+  subtitleKo: string | null;
+  isReview: boolean;
+  unitId: string;
+  cefrLevel: CEFRLevel;
+};
+
+/** Static chapter metadata. */
+export type Chapter = {
+  number: 1 | 2 | 3;
+  titleKo: string;
+  subtitleKo: string;
+  dayRange: [number, number];
+};
+
+/** The three chapters of the 100-day curriculum. */
+export const CHAPTERS: readonly Chapter[] = [
+  { number: 1, titleKo: '짧은 문장 훈련', subtitleKo: '영어 기본기 기르기', dayRange: [1, 25] },
+  {
+    number: 2,
+    titleKo: '확장 문장 훈련',
+    subtitleKo: '문장 확장하여 구체적으로 말하기',
+    dayRange: [26, 62],
+  },
+  {
+    number: 3,
+    titleKo: '일상 회화 문장 훈련',
+    subtitleKo: '자연스러운 영어 말하기',
+    dayRange: [63, 100],
+  },
+] as const;
+
+/** Total days in the curriculum. */
+export const TOTAL_DAYS = 100;

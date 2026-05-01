@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type {
   CEFRLevel,
+  CurriculumDay,
   CurriculumStep,
   CurriculumStepType,
   CurriculumUnit,
@@ -49,12 +50,24 @@ export class CurriculumIntegrityError extends Error {
   }
 }
 
-type CacheKind = 'curriculum_catalog' | 'curriculum_unit' | 'vocab_pack';
+type CacheKind = 'curriculum_catalog' | 'curriculum_unit' | 'vocab_pack' | 'curriculum_days';
 
 type UnitWithSteps = {
   unit: CurriculumUnit;
   steps: CurriculumStep[];
   pack: VocabPack;
+};
+
+/** Row shape returned by the `curriculum_day` Supabase table. */
+type DayRow = {
+  id: string;
+  day_number: number;
+  chapter: number;
+  title_ko: string;
+  subtitle_ko: string | null;
+  is_review: boolean;
+  unit_id: string;
+  cefr_level: CEFRLevel;
 };
 
 /** Shape returned by the `curriculum_unit` + prerequisite join. */
@@ -98,6 +111,8 @@ export class CurriculumService {
   private readonly catalogMemo = new Map<string, CurriculumUnit[]>();
   /** In-memory per-unit cache — fuels the sync `getNextStep`/`isUnitUnlocked`. */
   private readonly unitMemo = new Map<string, UnitWithSteps>();
+  /** In-memory 100-day list cache keyed by chapter (`'all' | '1' | '2' | '3'`). */
+  private readonly daysMemo = new Map<string, CurriculumDay[]>();
 
   constructor(
     private readonly db: SQLite.SQLiteDatabase | null,
@@ -133,10 +148,7 @@ export class CurriculumService {
       await this.writeCache('curriculum_catalog', cacheKey, units);
       return units;
     } catch (err) {
-      const diskHit = await this.readCache<CurriculumUnit[]>(
-        'curriculum_catalog',
-        cacheKey,
-      );
+      const diskHit = await this.readCache<CurriculumUnit[]>('curriculum_catalog', cacheKey);
       if (diskHit) {
         this.catalogMemo.set(cacheKey, diskHit);
         return diskHit;
@@ -168,10 +180,7 @@ export class CurriculumService {
     } catch (err) {
       // Integrity errors are not an "offline" condition — rethrow as-is.
       if (err instanceof CurriculumIntegrityError) throw err;
-      const diskHit = await this.readCache<UnitWithSteps>(
-        'curriculum_unit',
-        unitId,
-      );
+      const diskHit = await this.readCache<UnitWithSteps>('curriculum_unit', unitId);
       if (diskHit) {
         this.unitMemo.set(unitId, diskHit);
         return diskHit;
@@ -190,10 +199,7 @@ export class CurriculumService {
    * Calling this without a warm cache is a programming error, surfaced as
    * {@link CurriculumIntegrityError}.
    */
-  getNextStep(
-    unitId: string,
-    completedStepIds: ReadonlySet<string>,
-  ): CurriculumStep | null {
+  getNextStep(unitId: string, completedStepIds: ReadonlySet<string>): CurriculumStep | null {
     const bundle = this.unitMemo.get(unitId);
     if (!bundle) {
       throw new CurriculumIntegrityError(
@@ -202,9 +208,7 @@ export class CurriculumService {
     }
     // Sort defensively — the server should already order by order_index,
     // but we re-sort to make the invariant local to this method.
-    const ordered = [...bundle.steps].sort(
-      (a, b) => a.orderIndex - b.orderIndex,
-    );
+    const ordered = [...bundle.steps].sort((a, b) => a.orderIndex - b.orderIndex);
     for (const step of ordered) {
       if (!completedStepIds.has(step.id)) return step;
     }
@@ -234,27 +238,104 @@ export class CurriculumService {
         `getUnitWithSteps must be called before isUnitUnlocked({ enforce: true }) for unit ${unitId}.`,
       );
     }
-    return bundle.unit.prerequisiteIds.every((id) =>
-      completedUnitIds.has(id),
-    );
+    return bundle.unit.prerequisiteIds.every((id) => completedUnitIds.has(id));
   }
 
-  /** Drop every cached catalog/unit entry — both memory and SQLite. */
+  /** Drop every cached catalog/unit/day entry — both memory and SQLite. */
   invalidateCache(): void {
     this.catalogMemo.clear();
     this.unitMemo.clear();
+    this.daysMemo.clear();
     if (!this.db) return;
-    // Fire-and-forget: callers treat invalidate as synchronous. The
-    // SQLite delete is idempotent and inexpensive; failures are logged
-    // but not surfaced to avoid masking the real problem upstream.
     void this.db
       .runAsync(
-        `DELETE FROM content_cache WHERE kind IN ('curriculum_catalog', 'curriculum_unit', 'vocab_pack');`,
+        `DELETE FROM content_cache WHERE kind IN ('curriculum_catalog', 'curriculum_unit', 'vocab_pack', 'curriculum_days');`,
       )
       .catch((err) => {
         // eslint-disable-next-line no-console
         console.warn('[CurriculumService] invalidateCache disk sweep failed', err);
       });
+  }
+
+  // --------------------------------------------------------------------
+  // 100-day curriculum methods
+  // --------------------------------------------------------------------
+
+  /**
+   * List all 100 days, optionally filtered by chapter (1/2/3).
+   * Results are sorted by `day_number` ascending.
+   */
+  async listDays(chapter?: 1 | 2 | 3): Promise<CurriculumDay[]> {
+    const cacheKey = chapter != null ? String(chapter) : 'all';
+
+    const memoHit = this.daysMemo.get(cacheKey);
+    if (memoHit) return memoHit;
+
+    try {
+      let query = this.supabase
+        .from('curriculum_day')
+        .select('*')
+        .order('day_number', { ascending: true });
+      if (chapter != null) {
+        query = query.eq('chapter', chapter);
+      }
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      const days = (data ?? []).map(mapDayRow);
+      this.daysMemo.set(cacheKey, days);
+      await this.writeCache('curriculum_days', cacheKey, days);
+      return days;
+    } catch (err) {
+      const diskHit = await this.readCache<CurriculumDay[]>('curriculum_days', cacheKey);
+      if (diskHit) {
+        this.daysMemo.set(cacheKey, diskHit);
+        return diskHit;
+      }
+      throw toUnavailable(err);
+    }
+  }
+
+  /**
+   * Get a single Day by its number (1–100).
+   * Returns `null` if the day doesn't exist.
+   */
+  async getDayByNumber(dayNumber: number): Promise<CurriculumDay | null> {
+    // Try to find it in the full list cache first.
+    const allDays = this.daysMemo.get('all');
+    if (allDays) {
+      return allDays.find((d) => d.dayNumber === dayNumber) ?? null;
+    }
+
+    try {
+      const { data, error } = await this.supabase
+        .from('curriculum_day')
+        .select('*')
+        .eq('day_number', dayNumber)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return null;
+      return mapDayRow(data as DayRow);
+    } catch (err) {
+      // Try disk cache of the full list.
+      const diskHit = await this.readCache<CurriculumDay[]>('curriculum_days', 'all');
+      if (diskHit) {
+        return diskHit.find((d) => d.dayNumber === dayNumber) ?? null;
+      }
+      throw toUnavailable(err);
+    }
+  }
+
+  /**
+   * Determine the current Day the user should work on.
+   * Returns the first Day whose unit is not in `completedUnitIds`.
+   * If all 100 days are completed, returns `null` (curriculum finished).
+   */
+  async getCurrentDay(completedUnitIds: ReadonlySet<string>): Promise<CurriculumDay | null> {
+    const days = await this.listDays();
+    for (const day of days) {
+      if (!completedUnitIds.has(day.unitId)) return day;
+    }
+    return null;
   }
 
   // --------------------------------------------------------------------
@@ -279,14 +360,12 @@ export class CurriculumService {
 
     if (unitRes.error) throw new Error(unitRes.error.message);
     if (!unitRes.data) {
-      throw new CurriculumIntegrityError(
-        `Curriculum unit ${unitId} was not found.`,
-      );
+      throw new CurriculumIntegrityError(`Curriculum unit ${unitId} was not found.`);
     }
     if (stepsRes.error) throw new Error(stepsRes.error.message);
 
     const unit = mapUnitRow(unitRes.data as UnitRow);
-    const steps = (stepsRes.data as StepRow[] | null ?? []).map(mapStepRow);
+    const steps = ((stepsRes.data as StepRow[] | null) ?? []).map(mapStepRow);
 
     // Pack fetch is second-stage so we can key it off the unit row we just
     // received. Worst-case this is two sequential round-trips instead of
@@ -315,11 +394,7 @@ export class CurriculumService {
     const row = await this.db.getFirstAsync<{
       payload_json: string;
       fetched_at: number;
-    }>(
-      `SELECT payload_json, fetched_at FROM content_cache WHERE kind = ? AND key = ?;`,
-      kind,
-      key,
-    );
+    }>(`SELECT payload_json, fetched_at FROM content_cache WHERE kind = ? AND key = ?;`, kind, key);
     if (!row) return null;
     try {
       return JSON.parse(row.payload_json) as T;
@@ -328,11 +403,7 @@ export class CurriculumService {
     }
   }
 
-  private async writeCache<T>(
-    kind: CacheKind,
-    key: string,
-    value: T,
-  ): Promise<void> {
+  private async writeCache<T>(kind: CacheKind, key: string, value: T): Promise<void> {
     if (!this.db) return;
     await this.db.runAsync(
       `INSERT OR REPLACE INTO content_cache (kind, key, payload_json, fetched_at)
@@ -351,12 +422,8 @@ export class CurriculumService {
 
 function mapUnitRow(row: UnitRow): CurriculumUnit {
   const opens: UnitOpens =
-    row.opens_track && row.opens_point
-      ? { track: row.opens_track, point: row.opens_point }
-      : null;
-  const prerequisiteIds = (row.curriculum_unit_prerequisite ?? []).map(
-    (p) => p.prerequisite_id,
-  );
+    row.opens_track && row.opens_point ? { track: row.opens_track, point: row.opens_point } : null;
+  const prerequisiteIds = (row.curriculum_unit_prerequisite ?? []).map((p) => p.prerequisite_id);
   return {
     id: row.id,
     orderIndex: row.order_index,
@@ -366,6 +433,19 @@ function mapUnitRow(row: UnitRow): CurriculumUnit {
     vocabPackId: row.vocab_pack_id,
     theme: row.theme,
     prerequisiteIds,
+  };
+}
+
+function mapDayRow(row: DayRow): CurriculumDay {
+  return {
+    id: row.id,
+    dayNumber: row.day_number,
+    chapter: row.chapter as 1 | 2 | 3,
+    titleKo: row.title_ko,
+    subtitleKo: row.subtitle_ko,
+    isReview: row.is_review,
+    unitId: row.unit_id,
+    cefrLevel: row.cefr_level,
   };
 }
 
@@ -405,8 +485,7 @@ function mapVocabPackRow(row: VocabPackRow): VocabPack {
  * message while preserving the original as `cause` for logs.
  */
 function toUnavailable(err: unknown): CurriculumUnavailableError {
-  const message =
-    err instanceof Error ? err.message : 'Unknown curriculum fetch failure';
+  const message = err instanceof Error ? err.message : 'Unknown curriculum fetch failure';
   const wrapped = new CurriculumUnavailableError(
     `커리큘럼 데이터를 불러오지 못했어요. (${message})`,
   );

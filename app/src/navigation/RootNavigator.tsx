@@ -3,7 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import RecentWordsScreen from '../screens/RecentWordsScreen';
 import RewardedConfirmModal from '../screens/RewardedConfirmModal';
-import UnitListScreen from '../screens/curriculum/UnitListScreen';
+import DayListScreen from '../screens/curriculum/DayListScreen';
 import TrackASessionScreen from '../screens/TrackASessionScreen';
 import VocabHelperSheet from '../screens/VocabHelperSheet';
 import { useUserStore } from '../stores';
@@ -31,11 +31,7 @@ export default function RootNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: true }}>
       {onboardingCompleted ? (
-        <Stack.Screen
-          name="RootTabs"
-          component={RootTabs}
-          options={{ headerShown: false }}
-        />
+        <Stack.Screen name="RootTabs" component={RootTabs} options={{ headerShown: false }} />
       ) : (
         <Stack.Screen
           name="Onboarding"
@@ -49,14 +45,16 @@ export default function RootNavigator() {
         options={{ title: '최근 본 단어' }}
       />
       <Stack.Screen
-        name="UnitList"
-        component={UnitListScreen}
-        options={({ route }) => ({ title: `${route.params.level} 단원` })}
+        name="DayList"
+        component={DayListScreen}
+        options={{ title: '100일 커리큘럼' }}
       />
       <Stack.Screen
         name="TrackASession"
         component={TrackASessionScreen}
-        options={({ route }) => ({ title: route.params.unitTitle })}
+        options={({ route }) => ({
+          title: route.params.dayNumber ? `Day ${route.params.dayNumber}` : route.params.unitTitle,
+        })}
       />
       <Stack.Group screenOptions={{ presentation: 'modal' }}>
         <Stack.Screen
