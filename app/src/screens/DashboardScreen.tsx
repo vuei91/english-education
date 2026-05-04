@@ -5,7 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { RootStackParamList } from '../navigation/types';
 import type { CurriculumDay } from '../types/domain';
-import { TOTAL_DAYS } from '../types/domain';
+import { CHAPTERS, TOTAL_DAYS } from '../types/domain';
 import { CurriculumService } from '../services/curriculum/CurriculumService';
 import { getSupabaseClient } from '../lib/supabase';
 import { getContentDatabase } from '../db';
@@ -13,15 +13,11 @@ import { useHydrateProgressStore, useProgressStore } from '../stores';
 import { useTheme, type Theme } from '../theme';
 
 /**
- * Dashboard — Req 13.6.
+ * Dashboard — 홈 화면.
  *
- * Shows today's progress against Daily_Goal, the current and best streak,
- * and lifetime completed sentences. Two start CTAs route straight into
- * Track A or Track B. The user's preferred track gets the primary slot.
- *
- * We intentionally avoid showing loss-framed UI: no warnings about
- * breaking the streak, no heart-punishment prompts. Daily_Goal reached
- * messages appear only as a positive confirmation.
+ * 사용자가 앱을 열면 가장 먼저 보는 화면.
+ * 오늘 학습할 Day, 진행 상황, 학습 시작 버튼을 보여준다.
+ * 긍정적 톤만 사용하고, 패널티·경고 UI는 없다.
  */
 export default function DashboardScreen() {
   const theme = useTheme();
@@ -46,7 +42,7 @@ export default function DashboardScreen() {
     if (hydrated) reconcile();
   }, [hydrated, reconcile]);
 
-  /** Load the current Day from the 100-day curriculum. */
+  /** Load the current Day from the 30-day curriculum. */
   const loadCurrentDay = useCallback(async () => {
     try {
       if (!serviceRef.current) {
@@ -57,7 +53,7 @@ export default function DashboardScreen() {
       setCurrentDay(day);
 
       const allDays = await serviceRef.current.listDays();
-      const count = allDays.filter((d) => completedUnitIds.has(d.unitId)).length;
+      const count = allDays.filter((d) => d.unitIds.every((id) => completedUnitIds.has(id))).length;
       setCompletedDays(count);
     } catch {
       // Silently fail — dashboard still shows other stats.
@@ -78,13 +74,49 @@ export default function DashboardScreen() {
 
   const progressRatio = Math.min(1, sentencesCompletedToday / Math.max(1, dailyGoal));
   const remaining = Math.max(0, dailyGoal - sentencesCompletedToday);
+  const allDone = completedDays >= TOTAL_DAYS;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.greeting}>오늘의 목표</Text>
-        <Text style={styles.goalLine}>
-          {sentencesCompletedToday} / {dailyGoal} 문장
+      {/* ── 오늘의 학습 CTA ── */}
+      {currentDay ? (
+        <Pressable
+          onPress={() =>
+            navigation.navigate('TrackASession', {
+              unitId: currentDay.unitIds[0] ?? currentDay.unitId,
+              unitIds: currentDay.unitIds,
+              unitTitle: currentDay.titleKo,
+              dayNumber: currentDay.dayNumber,
+            })
+          }
+          accessibilityRole="button"
+          accessibilityLabel={`Day ${currentDay.dayNumber} ${currentDay.titleKo} 시작`}
+          style={({ pressed }) => [styles.heroCta, pressed && { opacity: 0.9 }]}
+        >
+          <Text style={styles.heroLabel}>현재 진행중인 학습</Text>
+          <Text style={styles.heroTitle}>
+            Day {currentDay.dayNumber}. {currentDay.titleKo}
+          </Text>
+          <Text style={styles.heroSub}>
+            {CHAPTERS.find((ch) => ch.number === currentDay.chapter)?.titleKo ?? ''} ·{' '}
+            {currentDay.cefrLevel} · {currentDay.unitIds.length}개 단원
+          </Text>
+          <View style={styles.heroButtonRow}>
+            <Text style={styles.heroButtonText}>학습 시작 →</Text>
+          </View>
+        </Pressable>
+      ) : allDone ? (
+        <View style={styles.heroCta}>
+          <Text style={styles.heroTitle}>🎉 30일 완주!</Text>
+          <Text style={styles.heroSub}>축하합니다! 모든 학습을 완료했어요.</Text>
+        </View>
+      ) : null}
+
+      {/* ── 오늘 진도 ── */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>오늘 진도</Text>
+        <Text style={styles.cardDesc}>
+          하루 목표 {dailyGoal}문장 중 {sentencesCompletedToday}문장 완료
         </Text>
         <View
           style={styles.progressTrack}
@@ -96,26 +128,43 @@ export default function DashboardScreen() {
         {goalHitToday ? (
           <Text style={styles.goalHit}>오늘 목표 달성 ✨</Text>
         ) : (
-          <Text style={styles.remaining}>목표까지 {remaining}문장 남았어요.</Text>
+          <Text style={styles.cardMuted}>{remaining}문장 더 하면 목표 달성!</Text>
         )}
       </View>
 
+      {/* ── 학습 통계 ── */}
       <View style={styles.statsRow}>
-        <StatCard label="스트릭" value={`${currentStreak}일`} theme={theme} />
-        <StatCard label="최고" value={`${bestStreak}일`} theme={theme} />
-        <StatCard label="누적" value={`${totalSentencesCompleted}`} theme={theme} />
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>🔥 {currentStreak}일</Text>
+          <Text style={styles.statLabel}>연속 학습</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>🏆 {bestStreak}일</Text>
+          <Text style={styles.statLabel}>최고 기록</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>📝 {totalSentencesCompleted}</Text>
+          <Text style={styles.statLabel}>누적 문장</Text>
+        </View>
       </View>
 
-      {/* 100일 챌린지 진행률 */}
-      <View style={styles.challengeCard}>
-        <Text style={styles.challengeTitle}>📅 100일 챌린지</Text>
+      {/* ── 30일 챌린지 진행률 ── */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>📅 30일 챌린지</Text>
+        <Text style={styles.cardDesc}>
+          {allDone
+            ? '모든 Day를 완료했어요!'
+            : currentDay
+              ? `현재 Day ${currentDay.dayNumber} 진행 중`
+              : '커리큘럼을 불러오는 중…'}
+        </Text>
         <Text style={styles.challengeProgress}>
-          Day {completedDays > 0 ? completedDays : 0} / {TOTAL_DAYS}
+          {completedDays} / {TOTAL_DAYS}일 완료
         </Text>
         <View
           style={styles.progressTrack}
           accessibilityRole="progressbar"
-          accessibilityLabel={`100일 중 ${completedDays}일 완료`}
+          accessibilityLabel={`30일 중 ${completedDays}일 완료`}
         >
           <View
             style={[styles.progressFill, { width: `${(completedDays / TOTAL_DAYS) * 100}%` }]}
@@ -123,56 +172,16 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <View style={styles.ctaSection}>
-        <Text style={styles.sectionLabel}>학습 시작</Text>
-        {currentDay ? (
-          <Pressable
-            onPress={() =>
-              navigation.navigate('TrackASession', {
-                unitId: currentDay.unitId,
-                unitTitle: currentDay.titleKo,
-                dayNumber: currentDay.dayNumber,
-              })
-            }
-            accessibilityRole="button"
-            accessibilityLabel={`Day ${currentDay.dayNumber} ${currentDay.titleKo} 시작`}
-            style={({ pressed }) => [styles.ctaPrimary, pressed && { opacity: 0.85 }]}
-          >
-            <Text style={styles.ctaPrimaryText}>
-              Day {currentDay.dayNumber}. {currentDay.titleKo}
-            </Text>
-            <Text style={styles.ctaPrimarySub}>
-              {currentDay.isReview ? '복습' : currentDay.cefrLevel} · 오늘의 학습
-            </Text>
-          </Pressable>
-        ) : completedDays >= TOTAL_DAYS ? (
-          <View style={styles.ctaPrimary}>
-            <Text style={styles.ctaPrimaryText}>🎉 100일 완주!</Text>
-            <Text style={styles.ctaPrimarySub}>축하합니다! 모든 학습을 완료했어요.</Text>
-          </View>
-        ) : null}
-        <Pressable
-          onPress={() => navigation.navigate('DayList', {})}
-          accessibilityRole="button"
-          accessibilityLabel="100일 커리큘럼 전체 보기"
-          style={({ pressed }) => [styles.ctaSecondary, pressed && { opacity: 0.85 }]}
-        >
-          <Text style={styles.ctaSecondaryText}>100일 커리큘럼 전체 보기</Text>
-        </Pressable>
-      </View>
+      {/* ── 전체 커리큘럼 보기 ── */}
+      <Pressable
+        onPress={() => navigation.navigate('DayList', {})}
+        accessibilityRole="button"
+        accessibilityLabel="30일 커리큘럼 전체 보기"
+        style={({ pressed }) => [styles.ctaSecondary, pressed && { opacity: 0.85 }]}
+      >
+        <Text style={styles.ctaSecondaryText}>30일 커리큘럼 전체 보기</Text>
+      </Pressable>
     </ScrollView>
-  );
-}
-
-type StatCardProps = { label: string; value: string; theme: Theme };
-
-function StatCard({ label, value, theme }: StatCardProps) {
-  const styles = useMemo(() => makeStyles(theme), [theme]);
-  return (
-    <View style={styles.statCard}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
   );
 }
 
@@ -191,21 +200,59 @@ function makeStyles(theme: Theme) {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
     },
-    header: {
+    /* ── Hero CTA (오늘의 학습) ── */
+    heroCta: {
+      backgroundColor: theme.colors.primary,
+      padding: theme.spacing.lg,
+      borderRadius: theme.radius.md,
+      gap: theme.spacing.sm,
+    },
+    heroLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.primaryOn,
+      opacity: 0.8,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    heroTitle: {
+      ...theme.typography.heading,
+      color: theme.colors.primaryOn,
+    },
+    heroSub: {
+      ...theme.typography.caption,
+      color: theme.colors.primaryOn,
+      opacity: 0.85,
+    },
+    heroButtonRow: {
+      marginTop: theme.spacing.sm,
+      alignSelf: 'flex-start',
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: theme.spacing.sm,
+      borderRadius: theme.radius.sm,
+    },
+    heroButtonText: {
+      ...theme.typography.button,
+      color: theme.colors.primaryOn,
+    },
+    /* ── 공통 카드 ── */
+    card: {
       backgroundColor: theme.colors.surface,
       padding: theme.spacing.lg,
       borderRadius: theme.radius.md,
       gap: theme.spacing.sm,
     },
-    greeting: {
+    cardTitle: {
+      ...theme.typography.button,
+      color: theme.colors.text,
+    },
+    cardDesc: {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
-      textTransform: 'uppercase',
-      letterSpacing: 1,
     },
-    goalLine: {
-      ...theme.typography.heading,
-      color: theme.colors.text,
+    cardMuted: {
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
     },
     progressTrack: {
       height: 10,
@@ -222,10 +269,11 @@ function makeStyles(theme: Theme) {
       color: theme.colors.primary,
       fontWeight: '600',
     },
-    remaining: {
-      ...theme.typography.caption,
-      color: theme.colors.textMuted,
+    challengeProgress: {
+      ...theme.typography.heading,
+      color: theme.colors.primary,
     },
+    /* ── 통계 카드 ── */
     statsRow: {
       flexDirection: 'row',
       gap: theme.spacing.md,
@@ -241,49 +289,13 @@ function makeStyles(theme: Theme) {
     statValue: {
       ...theme.typography.heading,
       color: theme.colors.text,
+      fontSize: 16,
     },
     statLabel: {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
     },
-    challengeCard: {
-      backgroundColor: theme.colors.surface,
-      padding: theme.spacing.lg,
-      borderRadius: theme.radius.md,
-      gap: theme.spacing.sm,
-    },
-    challengeTitle: {
-      ...theme.typography.button,
-      color: theme.colors.text,
-    },
-    challengeProgress: {
-      ...theme.typography.heading,
-      color: theme.colors.primary,
-    },
-    ctaSection: {
-      gap: theme.spacing.md,
-    },
-    sectionLabel: {
-      ...theme.typography.caption,
-      color: theme.colors.textMuted,
-      textTransform: 'uppercase',
-      letterSpacing: 1,
-    },
-    ctaPrimary: {
-      backgroundColor: theme.colors.primary,
-      padding: theme.spacing.lg,
-      borderRadius: theme.radius.md,
-      gap: 4,
-    },
-    ctaPrimaryText: {
-      ...theme.typography.heading,
-      color: theme.colors.primaryOn,
-    },
-    ctaPrimarySub: {
-      ...theme.typography.caption,
-      color: theme.colors.primaryOn,
-      opacity: 0.85,
-    },
+    /* ── 하단 CTA ── */
     ctaSecondary: {
       borderWidth: 1,
       borderColor: theme.colors.border,

@@ -125,6 +125,12 @@ type PersistedShape = {
   completedUnitIds: string[];
   /** Completed curriculum steps — same storage strategy as units. (Req 6.7) */
   completedStepIds: string[];
+  /**
+   * Per-day sentence index: `{ [dayNumber]: sentenceIndex }`.
+   * Tracks where in the sentence array the user is, so re-entering a Day
+   * resumes from that position. Cleared for a day when it's fully completed.
+   */
+  dayProgress: Record<number, number>;
 };
 
 /**
@@ -193,6 +199,10 @@ export type ProgressActions = {
     stepId: string,
     allStepIdsOfUnit: readonly string[],
   ) => { unitCompleted: boolean };
+  /** Set the current sentence index for a Day. */
+  setDayProgress: (dayNumber: number, sentenceIndex: number) => void;
+  /** Clear a Day's progress (called when Day is fully completed or reset). */
+  clearDayProgress: (dayNumber: number) => void;
   hydrate: () => Promise<void>;
   /** Test-only: wipe everything (both memory + disk). */
   reset: () => void;
@@ -212,6 +222,7 @@ const initialPersisted: PersistedShape = {
   patternBadges: {},
   completedUnitIds: [],
   completedStepIds: [],
+  dayProgress: {},
 };
 
 const initialState: ProgressState = {
@@ -266,6 +277,7 @@ function snapshot(state: ProgressState): PersistedShape {
     // Convert Sets → arrays for JSON. `hydrate` does the inverse.
     completedUnitIds: Array.from(state.completedUnitIds),
     completedStepIds: Array.from(state.completedStepIds),
+    dayProgress: state.dayProgress,
   };
 }
 
@@ -429,6 +441,20 @@ export const useProgressStore = create<ProgressState & ProgressActions>(
       });
 
       return { unitCompleted };
+    },
+
+    setDayProgress: (dayNumber, sentenceIndex) => {
+      const before = get();
+      set({ dayProgress: { ...before.dayProgress, [dayNumber]: sentenceIndex } });
+      void writePersisted(snapshot(get()));
+    },
+
+    clearDayProgress: (dayNumber) => {
+      const before = get();
+      const next = { ...before.dayProgress };
+      delete next[dayNumber];
+      set({ dayProgress: next });
+      void writePersisted(snapshot(get()));
     },
 
     hydrate: async () => {

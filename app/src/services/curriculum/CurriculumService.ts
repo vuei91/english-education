@@ -58,7 +58,7 @@ type UnitWithSteps = {
   pack: VocabPack;
 };
 
-/** Row shape returned by the `curriculum_day` Supabase table. */
+/** Row shape returned by the `curriculum_day` Supabase table (30-day). */
 type DayRow = {
   id: string;
   day_number: number;
@@ -66,8 +66,8 @@ type DayRow = {
   title_ko: string;
   subtitle_ko: string | null;
   is_review: boolean;
-  unit_id: string;
   cefr_level: CEFRLevel;
+  curriculum_day_unit?: Array<{ unit_id: string; order_index: number }> | null;
 };
 
 /** Shape returned by the `curriculum_unit` + prerequisite join. */
@@ -111,7 +111,7 @@ export class CurriculumService {
   private readonly catalogMemo = new Map<string, CurriculumUnit[]>();
   /** In-memory per-unit cache — fuels the sync `getNextStep`/`isUnitUnlocked`. */
   private readonly unitMemo = new Map<string, UnitWithSteps>();
-  /** In-memory 100-day list cache keyed by chapter (`'all' | '1' | '2' | '3'`). */
+  /** In-memory 30-day list cache keyed by chapter (`'all' | '1' | '2' | '3'`). */
   private readonly daysMemo = new Map<string, CurriculumDay[]>();
 
   constructor(
@@ -258,12 +258,13 @@ export class CurriculumService {
   }
 
   // --------------------------------------------------------------------
-  // 100-day curriculum methods
+  // 30-day curriculum methods
   // --------------------------------------------------------------------
 
   /**
-   * List all 100 days, optionally filtered by chapter (1/2/3).
+   * List all 30 days, optionally filtered by chapter (1/2/3).
    * Results are sorted by `day_number` ascending.
+   * Each day includes `unitIds` from the `curriculum_day_unit` bridge table.
    */
   async listDays(chapter?: 1 | 2 | 3): Promise<CurriculumDay[]> {
     const cacheKey = chapter != null ? String(chapter) : 'all';
@@ -274,7 +275,7 @@ export class CurriculumService {
     try {
       let query = this.supabase
         .from('curriculum_day')
-        .select('*')
+        .select('*, curriculum_day_unit(unit_id, order_index)')
         .order('day_number', { ascending: true });
       if (chapter != null) {
         query = query.eq('chapter', chapter);
@@ -296,7 +297,7 @@ export class CurriculumService {
   }
 
   /**
-   * Get a single Day by its number (1–100).
+   * Get a single Day by its number (1–30).
    * Returns `null` if the day doesn't exist.
    */
   async getDayByNumber(dayNumber: number): Promise<CurriculumDay | null> {
@@ -309,7 +310,7 @@ export class CurriculumService {
     try {
       const { data, error } = await this.supabase
         .from('curriculum_day')
-        .select('*')
+        .select('*, curriculum_day_unit(unit_id, order_index)')
         .eq('day_number', dayNumber)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -327,13 +328,14 @@ export class CurriculumService {
 
   /**
    * Determine the current Day the user should work on.
-   * Returns the first Day whose unit is not in `completedUnitIds`.
-   * If all 100 days are completed, returns `null` (curriculum finished).
+   * Returns the first Day whose ALL units are not in `completedUnitIds`.
+   * If all 30 days are completed, returns `null` (curriculum finished).
    */
   async getCurrentDay(completedUnitIds: ReadonlySet<string>): Promise<CurriculumDay | null> {
     const days = await this.listDays();
     for (const day of days) {
-      if (!completedUnitIds.has(day.unitId)) return day;
+      const allDone = day.unitIds.every((id) => completedUnitIds.has(id));
+      if (!allDone) return day;
     }
     return null;
   }
@@ -437,6 +439,10 @@ function mapUnitRow(row: UnitRow): CurriculumUnit {
 }
 
 function mapDayRow(row: DayRow): CurriculumDay {
+  const bridgeRows = (row.curriculum_day_unit ?? [])
+    .slice()
+    .sort((a, b) => a.order_index - b.order_index);
+  const unitIds = bridgeRows.map((r) => r.unit_id);
   return {
     id: row.id,
     dayNumber: row.day_number,
@@ -444,7 +450,8 @@ function mapDayRow(row: DayRow): CurriculumDay {
     titleKo: row.title_ko,
     subtitleKo: row.subtitle_ko,
     isReview: row.is_review,
-    unitId: row.unit_id,
+    unitId: unitIds[0] ?? '',
+    unitIds,
     cefrLevel: row.cefr_level,
   };
 }

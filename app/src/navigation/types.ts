@@ -13,10 +13,10 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 export type RootStackParamList = {
   Onboarding: undefined;
   RootTabs: NavigatorScreenParams<RootTabsParamList>;
-  /** 100-day curriculum list, optionally filtered to a chapter. */
+  /** 30-day curriculum list, optionally filtered to a chapter. */
   DayList: { chapter?: 1 | 2 | 3 };
-  /** Track A session. `dayNumber` links back to the 100-day curriculum. */
-  TrackASession: { unitId: string; unitTitle: string; dayNumber?: number };
+  /** Track A session. `dayNumber` links back to the 30-day curriculum. */
+  TrackASession: { unitId: string; unitIds?: string[]; unitTitle: string; dayNumber?: number };
   VocabHelper: { word: string; sourceSentenceId?: string };
   RewardedConfirm: {
     rewardType: 'heart' | 'unlock' | 'drill-retry';

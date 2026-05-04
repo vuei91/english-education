@@ -20,7 +20,7 @@ type DaySection = {
 };
 
 /**
- * DayListScreen — 100일 커리큘럼 목록.
+ * DayListScreen — 30일 커리큘럼 목록.
  *
  * 기존 LevelSelectScreen + UnitListScreen을 대체한다.
  * 3개 챕터를 SectionList로 표시하고, 각 Day를 탭하면
@@ -73,17 +73,18 @@ export default function DayListScreen() {
   }, [days, filterChapter]);
 
   const completedCount = useMemo(() => {
-    return days.filter((d) => completedUnitIds.has(d.unitId)).length;
+    return days.filter((d) => d.unitIds.every((id) => completedUnitIds.has(id))).length;
   }, [days, completedUnitIds]);
 
   const renderDay = useCallback(
     ({ item }: { item: CurriculumDay }) => {
-      const isCompleted = completedUnitIds.has(item.unitId);
+      const isCompleted = item.unitIds.every((id) => completedUnitIds.has(id));
       return (
         <Pressable
           onPress={() =>
             navigation.navigate('TrackASession', {
-              unitId: item.unitId,
+              unitId: item.unitIds[0] ?? item.unitId,
+              unitIds: item.unitIds,
               unitTitle: item.titleKo,
               dayNumber: item.dayNumber,
             })
@@ -153,14 +154,14 @@ export default function DayListScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <View style={styles.progressHeader}>
-        <Text style={styles.progressTitle}>100일 챌린지</Text>
+        <Text style={styles.progressTitle}>30일 챌린지</Text>
         <Text style={styles.progressCount}>
           {completedCount} / {TOTAL_DAYS}일 완료
         </Text>
         <View
           style={styles.progressTrack}
           accessibilityRole="progressbar"
-          accessibilityLabel={`100일 중 ${completedCount}일 완료`}
+          accessibilityLabel={`${TOTAL_DAYS}일 중 ${completedCount}일 완료`}
         >
           <View
             style={[styles.progressFill, { width: `${(completedCount / TOTAL_DAYS) * 100}%` }]}

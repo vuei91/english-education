@@ -133,6 +133,111 @@ export class ContentService {
     return sentence;
   }
 
+  /** Fetch a single sentence by its ID. Used by session resume to
+   *  rebuild history from `seenSentenceIds`. */
+  async getSentenceById(id: string): Promise<Sentence | null> {
+    const cached = await this.readCache<Sentence>('sentence', id);
+    if (cached) return cached;
+    const { data, error } = await this.supabase
+      .from('sentences')
+      .select(
+        'id, track, text_en, text_ko, cefr_level, situation, source, license, curriculum_step_id, is_phrase',
+      )
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    const sentence: Sentence = {
+      id: data.id as string,
+      track: data.track as Track,
+      textEn: data.text_en as string,
+      textKo: (data.text_ko as string | null) ?? null,
+      cefrLevel: data.cefr_level as CEFRLevel,
+      situation: (data.situation as string | null) ?? null,
+      source: data.source as string,
+      license: data.license as string,
+      curriculumStepId: (data.curriculum_step_id as string | null | undefined) ?? null,
+      isPhrase: (data.is_phrase as boolean | undefined) ?? false,
+    };
+    await this.writeCache('sentence', sentence.id, sentence);
+    return sentence;
+  }
+
+  /** Fetch multiple sentences by IDs, sorted by created_at ASC so resume
+   *  history reflects the learning order (not Set insertion order). */
+  async getSentencesByIds(ids: readonly string[]): Promise<Sentence[]> {
+    if (ids.length === 0) return [];
+    const { data, error } = await this.supabase
+      .from('sentences')
+      .select(
+        'id, track, text_en, text_ko, cefr_level, situation, source, license, curriculum_step_id, is_phrase, created_at',
+      )
+      .in('id', ids as string[])
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      track: row.track as Track,
+      textEn: row.text_en as string,
+      textKo: (row.text_ko as string | null) ?? null,
+      cefrLevel: row.cefr_level as CEFRLevel,
+      situation: (row.situation as string | null) ?? null,
+      source: row.source as string,
+      license: row.license as string,
+      curriculumStepId: (row.curriculum_step_id as string | null | undefined) ?? null,
+      isPhrase: (row.is_phrase as boolean | undefined) ?? false,
+    }));
+  }
+
+  /**
+   * Fetch all production sentences for the given curriculum steps,
+   * filtered by CEFR level (≤ maxCefrLevel), ordered by step → created_at.
+   * Used by TrackASessionScreen to preload the full Day in one shot.
+   */
+  async getSentencesForSteps(
+    stepIds: readonly string[],
+    maxCefrLevel: CEFRLevel,
+  ): Promise<Sentence[]> {
+    if (stepIds.length === 0) return [];
+    const cefrOrder: CEFRLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
+    const allowed = cefrOrder.slice(0, cefrOrder.indexOf(maxCefrLevel) + 1);
+
+    const { data, error } = await this.supabase
+      .from('sentences')
+      .select(
+        'id, track, text_en, text_ko, cefr_level, situation, source, license, curriculum_step_id, is_phrase, created_at',
+      )
+      .in('curriculum_step_id', stepIds as string[])
+      .in('cefr_level', allowed)
+      .eq('status', 'production');
+    if (error) throw new Error(error.message);
+
+    const rows = data ?? [];
+    const stepOrder = new Map(stepIds.map((id, i) => [id, i]));
+    // Sort by step order first, then by created_at within the step.
+    rows.sort((a, b) => {
+      const sa = stepOrder.get(a.curriculum_step_id as string) ?? 999;
+      const sb = stepOrder.get(b.curriculum_step_id as string) ?? 999;
+      if (sa !== sb) return sa - sb;
+      const ta = new Date(a.created_at as string).getTime();
+      const tb = new Date(b.created_at as string).getTime();
+      return ta - tb;
+    });
+
+    return rows.map((row) => ({
+      id: row.id as string,
+      track: row.track as Track,
+      textEn: row.text_en as string,
+      textKo: (row.text_ko as string | null) ?? null,
+      cefrLevel: row.cefr_level as CEFRLevel,
+      situation: (row.situation as string | null) ?? null,
+      source: row.source as string,
+      license: row.license as string,
+      curriculumStepId: (row.curriculum_step_id as string | null | undefined) ?? null,
+      isPhrase: (row.is_phrase as boolean | undefined) ?? false,
+    }));
+  }
+
   async getChunks(sentenceId: string): Promise<Chunk[]> {
     const cached = await this.readCache<Chunk[]>('chunks', sentenceId);
     if (cached) return cached;
@@ -230,12 +335,23 @@ export class ContentService {
    * Count the number of production sentences for a given curriculum step.
    * Used by the session screen to show progress (e.g. "5 / 20").
    */
-  async countSentencesInStep(curriculumStepId: string): Promise<number> {
-    const { count, error } = await this.supabase
+  /**
+   * Count the number of production sentences for a given curriculum step,
+   * optionally filtered by CEFR level range (matches pick_next_sentence
+   * RPC behavior so totalCount reflects actually-available sentences).
+   */
+  async countSentencesInStep(curriculumStepId: string, maxCefrLevel?: CEFRLevel): Promise<number> {
+    const cefrOrder: CEFRLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
+    let query = this.supabase
       .from('sentences')
       .select('id', { count: 'exact', head: true })
       .eq('curriculum_step_id', curriculumStepId)
       .eq('status', 'production');
+    if (maxCefrLevel) {
+      const allowed = cefrOrder.slice(0, cefrOrder.indexOf(maxCefrLevel) + 1);
+      query = query.in('cefr_level', allowed);
+    }
+    const { count, error } = await query;
     if (error) throw new Error(error.message);
     return count ?? 0;
   }

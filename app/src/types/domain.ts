@@ -137,14 +137,14 @@ export type Sentence = {
 };
 
 // ---------------------------------------------------------------------------
-// 100-day curriculum (curriculum-100days.md)
+// 30-day curriculum (curriculum-30day-migration.md)
 // ---------------------------------------------------------------------------
 
 /**
- * A Day wraps a single `CurriculumUnit` with ordering and chapter metadata.
- * The Day number (1–100) is the user-facing progression counter.
- * `unitId` links 1:1 to the existing `CurriculumUnit` so the 3-step
- * learning pipeline (Phrase → Conjugation → Substitution) is reused as-is.
+ * A Day groups one or more `CurriculumUnit`s with ordering and chapter metadata.
+ * The Day number (1–30) is the user-facing progression counter.
+ * `unitIds` lists all units for this day (from `curriculum_day_unit` bridge table).
+ * `unitId` is kept as the first unit for backward compatibility.
  */
 export type CurriculumDay = {
   id: string;
@@ -154,6 +154,7 @@ export type CurriculumDay = {
   subtitleKo: string | null;
   isReview: boolean;
   unitId: string;
+  unitIds: string[];
   cefrLevel: CEFRLevel;
 };
 
@@ -165,22 +166,22 @@ export type Chapter = {
   dayRange: [number, number];
 };
 
-/** The three chapters of the 100-day curriculum. */
+/** The three chapters of the 30-day curriculum. */
 export const CHAPTERS: readonly Chapter[] = [
-  { number: 1, titleKo: '짧은 문장 훈련', subtitleKo: '영어 기본기 기르기', dayRange: [1, 25] },
+  { number: 1, titleKo: '기초 문장 훈련', subtitleKo: '영어 기본기 기르기', dayRange: [1, 8] },
   {
     number: 2,
     titleKo: '확장 문장 훈련',
-    subtitleKo: '문장 확장하여 구체적으로 말하기',
-    dayRange: [26, 62],
+    subtitleKo: '문장을 길게 만들기',
+    dayRange: [9, 20],
   },
   {
     number: 3,
-    titleKo: '일상 회화 문장 훈련',
+    titleKo: '일상 회화 훈련',
     subtitleKo: '자연스러운 영어 말하기',
-    dayRange: [63, 100],
+    dayRange: [21, 30],
   },
 ] as const;
 
 /** Total days in the curriculum. */
-export const TOTAL_DAYS = 100;
+export const TOTAL_DAYS = 30;

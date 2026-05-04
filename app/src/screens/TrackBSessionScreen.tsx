@@ -330,23 +330,6 @@ export default function TrackBSessionScreen() {
 
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="단계 건너뛰기"
-                onPress={goToNextStep}
-                style={({ pressed }) => [
-                  styles.navButton,
-                  {
-                    borderColor: theme.colors.border,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                <Text style={[styles.navLabel, { color: theme.colors.textMuted }]}>
-                  건너뛰기 →
-                </Text>
-              </Pressable>
-
-              <Pressable
-                accessibilityRole="button"
                 accessibilityLabel={
                   STEP_ORDER.indexOf(currentStep) === STEP_ORDER.length - 1
                     ? '문장 마치기'

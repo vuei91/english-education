@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useTheme, type Theme } from '../../theme';
@@ -89,88 +89,71 @@ export default function SentenceCard({
   onWordPress,
   mode = 'en-to-ko',
   onRevealEnglish,
-  onPlayKorean,
+  onPlayKorean: _onPlayKorean,
 }: SentenceCardProps) {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
-  // --- ko-to-en mode: toggle English answer ---------------------------
-  const [showEnglish, setShowEnglish] = useState(false);
+  const [revealed, setRevealed] = useState(false);
 
-  const handleRevealEnglish = useCallback(() => {
-    setShowEnglish(true);
-    onRevealEnglish?.();
-  }, [onRevealEnglish]);
+  // Reset revealed state when the sentence changes
+  useEffect(() => {
+    setRevealed(false);
+  }, [textEn]);
 
-  if (mode === 'ko-to-en') {
-    // Korean is the main text; English is hidden until revealed.
-    return (
-      <View style={styles.card}>
-        {/* Mode badge so the learner knows this is a recall exercise */}
-        <View style={[styles.modeBadge, { backgroundColor: theme.colors.accent }]}>
-          <Text style={[styles.modeBadgeText, { color: theme.colors.text }]}>
-            🇰🇷→🇺🇸 영어로 말해보기
-          </Text>
-        </View>
+  const handleReveal = useCallback(() => {
+    setRevealed(true);
+    if (mode === 'ko-to-en') onRevealEnglish?.();
+  }, [mode, onRevealEnglish]);
 
-        <Text accessibilityRole="header" accessibilityLabel={textKo ?? ''} style={styles.sentence}>
-          {textKo ?? '(한국어 번역 없음)'}
-        </Text>
+  const isKoToEn = mode === 'ko-to-en';
 
-        {/* Korean replay button */}
-        {onPlayKorean ? (
-          <Pressable
-            onPress={onPlayKorean}
-            accessibilityRole="button"
-            accessibilityLabel="한국어 다시 듣기"
-            style={styles.koreanPlayButton}
-          >
-            <Text style={[styles.koreanPlayText, { color: theme.colors.primary }]}>
-              🔊 한국어 다시 듣기
-            </Text>
-          </Pressable>
-        ) : null}
-
-        <View style={styles.revealRow}>
-          {showEnglish ? (
-            <>
-              <EnglishWords textEn={textEn} onWordPress={onWordPress} styles={styles} />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="영어 정답 숨기기"
-                onPress={() => setShowEnglish(false)}
-                style={styles.toggle}
-              >
-                <Text style={styles.toggleText}>숨기기</Text>
-              </Pressable>
-            </>
-          ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="영어 정답 보기"
-              onPress={handleRevealEnglish}
-              style={styles.revealButton}
-            >
-              <Text style={[styles.revealButtonText, { color: theme.colors.primaryOn }]}>
-                영어 보기
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-    );
-  }
-
-  // --- Default: en-to-ko mode -----------------------------------------
   return (
     <View style={styles.card}>
-      <EnglishWords textEn={textEn} onWordPress={onWordPress} styles={styles} />
+      {/* Top: primary language */}
+      {isKoToEn ? (
+        <Text accessibilityRole="header" style={styles.sentence}>
+          {textKo ?? '(한국어 번역 없음)'}
+        </Text>
+      ) : (
+        <EnglishWords textEn={textEn} onWordPress={onWordPress} styles={styles} />
+      )}
 
-      {textKo ? (
-        <View style={styles.koreanRow}>
-          <Text style={styles.korean}>{textKo}</Text>
-        </View>
-      ) : null}
+      {/* Bottom: hidden language, toggle on tap */}
+      {revealed ? (
+        <Pressable
+          onPress={() => setRevealed(false)}
+          accessibilityRole="button"
+          accessibilityLabel={isKoToEn ? '영어 숨기기' : '한글 숨기기'}
+          style={styles.revealedRow}
+        >
+          {isKoToEn ? (
+            <EnglishWords textEn={textEn} onWordPress={onWordPress} styles={styles} />
+          ) : (
+            <Text style={styles.korean}>{textKo ?? ''}</Text>
+          )}
+          <Text style={styles.hideHint}>
+            {isKoToEn ? '탭하여 숨기기' : '탭하여 숨기기'}
+          </Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={handleReveal}
+          accessibilityRole="button"
+          accessibilityLabel={isKoToEn ? '영어 보기' : '한글 보기'}
+          style={({ pressed }) => [
+            styles.revealButton,
+            {
+              borderColor: theme.colors.border,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <Text style={styles.revealButtonText}>
+            {isKoToEn ? '영어 보기' : '한글 보기'}
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -194,52 +177,31 @@ function makeStyles(theme: Theme) {
       textDecorationLine: 'underline',
       textDecorationStyle: 'dotted',
     },
-    koreanRow: {
-      minHeight: 28,
-    },
     korean: {
       ...theme.typography.body,
       color: theme.colors.textSubtle,
     },
-    toggle: {
-      alignSelf: 'flex-start',
-      paddingVertical: theme.spacing.xs,
+    revealedRow: {
+      paddingTop: theme.spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.colors.border,
     },
-    toggleText: {
+    hideHint: {
       ...theme.typography.caption,
-      color: theme.colors.primary,
-    },
-    // --- ko-to-en mode styles ---
-    modeBadge: {
-      alignSelf: 'flex-start',
-      paddingHorizontal: theme.spacing.sm,
-      paddingVertical: 2,
-      borderRadius: theme.radius.sm,
-    },
-    modeBadgeText: {
-      ...theme.typography.caption,
-      fontWeight: '600',
-    },
-    revealRow: {
-      gap: theme.spacing.sm,
+      color: theme.colors.textMuted,
+      textAlign: 'left',
+      marginTop: theme.spacing.xs,
     },
     revealButton: {
-      alignSelf: 'flex-start',
-      paddingHorizontal: theme.spacing.lg,
+      alignSelf: 'stretch',
+      alignItems: 'center',
       paddingVertical: theme.spacing.md,
       borderRadius: theme.radius.md,
-      backgroundColor: theme.colors.primary,
+      borderWidth: 1,
     },
     revealButtonText: {
       ...theme.typography.button,
-    },
-    koreanPlayButton: {
-      alignSelf: 'flex-start',
-      paddingVertical: theme.spacing.xs,
-    },
-    koreanPlayText: {
-      ...theme.typography.caption,
-      fontWeight: '600',
+      color: theme.colors.textMuted,
     },
   });
 }

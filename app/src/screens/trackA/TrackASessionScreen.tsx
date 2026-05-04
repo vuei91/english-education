@@ -12,28 +12,24 @@ import { getSupabaseClient } from '../../lib/supabase';
 import { getContentDatabase } from '../../db';
 import { useSessionStore, useUserStore, useVocabStore, useProgressStore } from '../../stores';
 import { useTheme, type Theme } from '../../theme';
-import type { CurriculumStep, SentenceFeedback } from '../../types/domain';
+import type { CurriculumDay, CurriculumStep } from '../../types/domain';
 import AudioControls from './AudioControls';
-import FeedbackBar from './FeedbackBar';
 import SentenceCard, { type CardMode } from './SentenceCard';
 
 /**
- * Track A session screen — Req 1.1, 1.3, 1.6, 1.8.
+ * Track A session — simplified design.
  *
- * Responsibilities:
- *   - Ask ContentService for the next sentence (1.1)
- *   - Auto-play the native audio once on arrival (1.3)
- *   - Let the user replay via the listen button (1.4)
- *   - Route word taps to VocabHelper (1.8)
- *   - Gather "known/hard" feedback and advance (1.6, 1.7)
- *
- * Explicit Non-Goals (enforced by absence):
- *   - No microphone, no speech recognition, no pronunciation score (1.5)
- *   - No penalty for skipping — the Next button is always live (Req 3 in 3-4)
- *
- * Note on services: we instantiate ContentService lazily and keep it in a
- * ref so React Native Fast Refresh doesn't create a fresh Supabase client
- * on every render.
+ * Flow:
+ *   1. On mount, preload ALL sentences for this Day (across all units/steps)
+ *      sorted by step order → created_at.
+ *   2. Track the current position with a single `currentIndex` (0-based).
+ *   3. Restore position from `dayProgress[dayNumber]` on re-entry.
+ *   4. "다음" → index + 1. "이전" → index - 1.
+ *   5. First EN_FIRST_COUNT sentences in ko-to-en if Korean available,
+ *      based on `currentIndex` (not session counter) so mode is stable
+ *      across re-entry.
+ *   6. On completion (index >= sentences.length), mark all steps/units
+ *      completed and clear dayProgress for this Day.
  */
 export default function TrackASessionScreen() {
   const theme = useTheme();
@@ -41,57 +37,42 @@ export default function TrackASessionScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'TrackASession'>>();
   const unitId = route.params?.unitId;
+  const unitIds = route.params?.unitIds;
   const dayNumber = route.params?.dayNumber;
 
   const cefrLevel = useUserStore((s) => s.cefrLevel);
   const startSession = useSessionStore((s) => s.startSession);
   const endSession = useSessionStore((s) => s.endSession);
   const recordTap = useVocabStore((s) => s.recordTap);
-  const recentTaps = useVocabStore((s) => s.recentTaps);
   const completeSentence = useProgressStore((s) => s.completeSentence);
+  const markStepCompleted = useProgressStore((s) => s.markStepCompleted);
+  const dayProgress = useProgressStore((s) => s.dayProgress);
+  const setDayProgress = useProgressStore((s) => s.setDayProgress);
+  const clearDayProgress = useProgressStore((s) => s.clearDayProgress);
 
-  const [sentence, setSentence] = useState<Sentence | null>(null);
+  const [sentences, setSentences] = useState<Sentence[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [playCount, setPlayCount] = useState(0);
-  const [stepLabel, setStepLabel] = useState<string | null>(null);
-  /** Current card presentation mode. */
-  const [cardMode, setCardMode] = useState<CardMode>('en-to-ko');
-  /** Progress: how many sentences completed (shown MIN_REPEATS times) in current step. */
-  const [completedCount, setCompletedCount] = useState(0);
-  /** Progress: total sentences in current step. */
-  const [totalInStep, setTotalInStep] = useState(0);
-  /**
-   * Per-sentence exposure count in this session. A sentence is only
-   * excluded from the RPC query after it has been shown
-   * `MIN_REPEATS` times, ensuring every sentence gets practised at
-   * least 3 times before moving on.
-   */
-  const exposureMapRef = useRef<Record<string, number>>({});
-  /** Minimum times each sentence must be shown before it's excluded. */
-  const MIN_REPEATS = 3;
-  /**
-   * Total number of sentences presented so far in this session.
-   * The first few are shown in `en-to-ko` mode (English first) so the
-   * learner gets familiar with the pattern, then the rest switch to
-   * `ko-to-en` (Korean first, English hidden) for active recall.
-   */
-  const sessionCountRef = useRef(0);
-  /** How many sentences to show in en-to-ko mode before switching. */
-  const EN_FIRST_COUNT = 3;
-  /** Curriculum steps for the selected unit, loaded once. */
-  const stepsRef = useRef<CurriculumStep[]>([]);
-  /** Index into stepsRef — advances when a step's sentences are exhausted. */
-  const stepIndexRef = useRef(0);
+  const [nextDay, setNextDay] = useState<CurriculumDay | null>(null);
 
-  const serviceRef = useRef<ContentService | null>(null);
+  /** Refs for service singletons. */
+  const contentSvcRef = useRef<ContentService | null>(null);
   const curriculumSvcRef = useRef<CurriculumService | null>(null);
+  /** Full list of curriculum steps, used for marking completion. */
+  const allStepsRef = useRef<CurriculumStep[]>([]);
+  /** Tracks whether we've initialised from persisted state already. */
+  const initialisedRef = useRef(false);
 
-  const getService = useCallback(async () => {
-    if (serviceRef.current) return serviceRef.current;
+  /** How many sentences to show in `en-to-ko` mode before switching. */
+  const EN_FIRST_COUNT = 3;
+
+  const getContentService = useCallback(async () => {
+    if (contentSvcRef.current) return contentSvcRef.current;
     const db = await getContentDatabase();
-    serviceRef.current = new ContentService(db, getSupabaseClient());
-    return serviceRef.current;
+    contentSvcRef.current = new ContentService(db, getSupabaseClient());
+    return contentSvcRef.current;
   }, []);
 
   const getCurriculumService = useCallback(async () => {
@@ -101,151 +82,116 @@ export default function TrackASessionScreen() {
     return curriculumSvcRef.current;
   }, []);
 
-  /** Load curriculum steps for the unit (once). */
-  const loadSteps = useCallback(async () => {
-    if (!unitId || stepsRef.current.length > 0) return;
-    const csvc = await getCurriculumService();
-    const bundle = await csvc.getUnitWithSteps(unitId);
-    stepsRef.current = [...bundle.steps].sort((a, b) => a.orderIndex - b.orderIndex);
-    stepIndexRef.current = 0;
-  }, [unitId, getCurriculumService]);
-
-  const STEP_LABELS: Record<string, string> = {
-    phrase: '구 듣기',
-    conjugation: '굴절 연습',
-    substitution: '치환 연습',
-  };
-
   /**
-   * Present a loaded sentence. The first `EN_FIRST_COUNT` sentences in
-   * the session are shown in `en-to-ko` mode (English text + audio
-   * first) so the learner gets familiar with the pattern. After that,
-   * every sentence switches to `ko-to-en` mode — Korean text is shown
-   * and read aloud, English is hidden behind a reveal button.
+   * Load all sentences for the Day's units, preserving step → created_at order.
+   * Also sets the current index from persisted dayProgress.
    */
-  const presentSentence = useCallback(
-    async (next: Sentence) => {
-      sessionCountRef.current += 1;
-      const count = sessionCountRef.current;
+  const loadDay = useCallback(async () => {
+    if (initialisedRef.current) return;
+    initialisedRef.current = true;
 
-      const hasKorean = Boolean(next.textKo);
-      const useKoToEn = hasKorean && count > EN_FIRST_COUNT;
-
-      setSentence(next);
-      setCardMode(useKoToEn ? 'ko-to-en' : 'en-to-ko');
-      startSession('A', next.id);
-
-      if (useKoToEn && next.textKo) {
-        // Korean-first mode: read Korean aloud.
-        await audioPlayer.speak(next.textKo, { language: 'ko-KR' });
-        setPlayCount(1);
-      } else {
-        // English-first mode: play English audio immediately.
-        await audioPlayer.speak(next.textEn, { sentenceId: next.id });
-        setPlayCount(1);
-      }
-    },
-    [startSession],
-  );
-
-  const loadNext = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setPlayCount(0);
-
-    /** Build excludeIds: only sentences shown >= MIN_REPEATS times. */
-    const getExcludeIds = (): string[] =>
-      Object.entries(exposureMapRef.current)
-        .filter(([, count]) => count >= MIN_REPEATS)
-        .map(([id]) => id);
-
-    /** Record that a sentence was shown once more and update progress. */
-    const recordExposure = (id: string) => {
-      exposureMapRef.current[id] = (exposureMapRef.current[id] ?? 0) + 1;
-      // Update completed count: sentences that reached MIN_REPEATS.
-      const done = Object.values(exposureMapRef.current).filter((c) => c >= MIN_REPEATS).length;
-      setCompletedCount(done);
-    };
 
     try {
-      await loadSteps();
-      const svc = await getService();
+      const idsToLoad = unitIds && unitIds.length > 0 ? unitIds : unitId ? [unitId] : [];
+      if (idsToLoad.length === 0) {
+        setSentences([]);
+        return;
+      }
 
-      const steps = stepsRef.current;
-      let currentStepId: string | undefined;
+      const csvc = await getCurriculumService();
+      const svc = await getContentService();
 
-      if (steps.length > 0) {
-        // Try current step; if exhausted, advance to next step
-        while (stepIndexRef.current < steps.length) {
-          const step = steps[stepIndexRef.current];
-          if (!step) break;
-          currentStepId = step.id;
-          setStepLabel(
-            `${stepIndexRef.current + 1}/3 ${STEP_LABELS[step.stepType] ?? step.stepType}`,
-          );
+      // Collect steps across all units in order
+      const allSteps: CurriculumStep[] = [];
+      for (const uid of idsToLoad) {
+        const bundle = await csvc.getUnitWithSteps(uid);
+        const sorted = [...bundle.steps].sort((a, b) => a.orderIndex - b.orderIndex);
+        allSteps.push(...sorted);
+      }
+      allStepsRef.current = allSteps;
 
-          const hotWords: string[] = [];
-          const next = await svc.getNextSentence('A', cefrLevel, {
-            hotWords,
-            excludeIds: getExcludeIds(),
-            curriculumStepId: currentStepId,
-          });
+      // Fetch all sentences in one shot
+      const stepIds = allSteps.map((s) => s.id);
+      const loaded = await svc.getSentencesForSteps(stepIds, cefrLevel);
+      setSentences(loaded);
 
-          if (next) {
-            // On first sentence of a step, fetch total count for progress.
-            if (Object.keys(exposureMapRef.current).length === 0) {
-              const count = await svc.countSentencesInStep(currentStepId!);
-              setTotalInStep(count);
-              setCompletedCount(0);
-            }
-            recordExposure(next.id);
-            await presentSentence(next);
-            return;
-          }
-
-          // No more sentences in this step — advance
-          stepIndexRef.current += 1;
-          // Reset exposure map for the new step so sentences start fresh.
-          exposureMapRef.current = {};
-        }
-
-        // All steps exhausted
-        setSentence(null);
-        setStepLabel('완료');
-      } else {
-        // No curriculum — legacy random mode
-        setStepLabel(null);
-        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-        const hotWords = Array.from(
-          new Set(recentTaps.filter((t) => t.tappedAt >= cutoff).map((t) => t.word)),
-        ).slice(0, 20);
-        const next = await svc.getNextSentence('A', cefrLevel, {
-          hotWords,
-          excludeIds: getExcludeIds(),
-        });
-        if (next) {
-          recordExposure(next.id);
-          await presentSentence(next);
-        } else {
-          setSentence(null);
-        }
+      // Restore position from persisted state
+      if (dayNumber) {
+        const savedIndex = dayProgress[dayNumber] ?? 0;
+        const clamped = Math.max(0, Math.min(savedIndex, loaded.length - 1));
+        setCurrentIndex(clamped);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      initialisedRef.current = false;
     } finally {
       setLoading(false);
     }
-  }, [cefrLevel, getService, loadSteps, presentSentence, recentTaps]);
+  }, [unitId, unitIds, dayNumber, cefrLevel, dayProgress, getContentService, getCurriculumService]);
 
+  // Prefetch the next Day for "다음 학습" navigation when the Day completes.
+  const prefetchNextDay = useCallback(async () => {
+    if (!dayNumber) return;
+    try {
+      const csvc = await getCurriculumService();
+      const next = await csvc.getDayByNumber(dayNumber + 1);
+      setNextDay(next);
+    } catch {
+      // Silent — user can go back manually if this fails.
+    }
+  }, [dayNumber, getCurriculumService]);
+
+  // Mount: load Day + prefetch next.
   useEffect(() => {
-    void loadNext();
+    void loadDay();
+    void prefetchNextDay();
     return () => {
       void audioPlayer.stop();
       endSession();
     };
-    // We only want this on mount. loadNext is stable via useCallback.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Current sentence (undefined when Day completed or empty). */
+  const sentence = sentences[currentIndex];
+
+  /** Present the current sentence's audio + start session state. */
+  useEffect(() => {
+    if (!sentence) return;
+    const hasKorean = Boolean(sentence.textKo);
+    const useKoToEn = hasKorean && currentIndex >= EN_FIRST_COUNT;
+    startSession('A', sentence.id);
+    setPlayCount(0);
+
+    void (async () => {
+      if (useKoToEn && sentence.textKo) {
+        await audioPlayer.speak(sentence.textKo, { language: 'ko-KR' });
+      } else {
+        await audioPlayer.speak(sentence.textEn, { sentenceId: sentence.id });
+      }
+      setPlayCount(1);
+    })();
+
+    // Persist current position
+    if (dayNumber) {
+      setDayProgress(dayNumber, currentIndex);
+    }
+  }, [sentence, currentIndex, dayNumber, setDayProgress, startSession]);
+
+  /** Keep header title clean. */
+  useEffect(() => {
+    const base = dayNumber ? `Day ${dayNumber}` : route.params?.unitTitle ?? '';
+    navigation.setOptions({ title: base });
+  }, [dayNumber, navigation, route.params?.unitTitle]);
+
+  const totalCount = sentences.length;
+  const progress = totalCount > 0 ? (currentIndex + 1) / totalCount : 0;
+  const hasKorean = Boolean(sentence?.textKo);
+  const useKoToEn = hasKorean && currentIndex >= EN_FIRST_COUNT;
+  const cardMode: CardMode = useKoToEn ? 'ko-to-en' : 'en-to-ko';
+  const allDone = totalCount > 0 && currentIndex >= totalCount;
 
   const handlePlay = useCallback(async () => {
     if (!sentence) return;
@@ -253,18 +199,12 @@ export default function TrackASessionScreen() {
     setPlayCount((n) => n + 1);
   }, [sentence]);
 
-  /**
-   * `ko-to-en` mode: called when the learner taps "영어 보기" to reveal
-   * the English answer. Plays the audio so they can hear the correct
-   * pronunciation right after seeing the text.
-   */
   const handleRevealEnglish = useCallback(async () => {
     if (!sentence) return;
     await audioPlayer.speak(sentence.textEn, { sentenceId: sentence.id });
     setPlayCount((n) => n + 1);
   }, [sentence]);
 
-  /** Replay the Korean sentence via Korean TTS. */
   const handlePlayKorean = useCallback(async () => {
     if (!sentence?.textKo) return;
     await audioPlayer.speak(sentence.textKo, { language: 'ko-KR' });
@@ -286,19 +226,64 @@ export default function TrackASessionScreen() {
     [navigation, recordTap, sentence],
   );
 
-  const handleFeedback = useCallback(
-    async (_feedback: SentenceFeedback) => {
-      // _feedback is stored as part of the sync queue in Task 17 wiring.
-      // Here we just advance; ranking uses the same value in Task 11.
-      completeSentence();
-      await loadNext();
-    },
-    [completeSentence, loadNext],
-  );
+  /** Mark all steps/units complete and clear Day progress. */
+  const finishDay = useCallback(() => {
+    const steps = allStepsRef.current;
+    // Group steps by unit
+    const unitSteps = new Map<string, CurriculumStep[]>();
+    for (const s of steps) {
+      const list = unitSteps.get(s.unitId) ?? [];
+      list.push(s);
+      unitSteps.set(s.unitId, list);
+    }
+    for (const [uid, stepList] of unitSteps.entries()) {
+      const allStepIds = stepList.map((s) => s.id);
+      for (const step of stepList) {
+        markStepCompleted(uid, step.id, allStepIds);
+      }
+    }
+    if (dayNumber) clearDayProgress(dayNumber);
+  }, [dayNumber, markStepCompleted, clearDayProgress]);
+
+  const handleNext = useCallback(() => {
+    completeSentence();
+    const next = currentIndex + 1;
+    if (next >= totalCount) {
+      // Day done
+      finishDay();
+    }
+    setCurrentIndex(next);
+  }, [completeSentence, currentIndex, totalCount, finishDay]);
+
+  const handlePrev = useCallback(() => {
+    if (currentIndex <= 0) return;
+    setCurrentIndex(currentIndex - 1);
+  }, [currentIndex]);
+
+  const canGoBack = currentIndex > 0;
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      {totalCount > 0 && !allDone && (
+        <View style={styles.topBar}>
+          <View style={styles.progressTrack}>
+            <View
+              style={[styles.progressFill, { width: `${Math.min(progress * 100, 100)}%` }]}
+            />
+          </View>
+          <Text
+            style={styles.progressLabel}
+            accessibilityLabel={`${currentIndex + 1} / ${totalCount} 완료`}
+          >
+            {currentIndex + 1} / {totalCount}
+          </Text>
+        </View>
+      )}
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        style={styles.scrollFlex}
+      >
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color={theme.colors.primary} />
@@ -309,7 +294,8 @@ export default function TrackASessionScreen() {
             <Text style={styles.errorDetail}>{error}</Text>
             <Pressable
               onPress={() => {
-                void loadNext();
+                initialisedRef.current = false;
+                void loadDay();
               }}
               style={styles.retry}
               accessibilityRole="button"
@@ -318,20 +304,53 @@ export default function TrackASessionScreen() {
               <Text style={styles.retryText}>다시 시도</Text>
             </Pressable>
           </View>
+        ) : allDone ? (
+          <View style={styles.center}>
+            <Text style={styles.emptyTitle}>이 단원을 모두 학습했어요! 🎉</Text>
+            {nextDay ? (
+              <Pressable
+                onPress={() =>
+                  navigation.replace('TrackASession', {
+                    unitId: nextDay.unitIds[0] ?? nextDay.unitId,
+                    unitIds: nextDay.unitIds,
+                    unitTitle: nextDay.titleKo,
+                    dayNumber: nextDay.dayNumber,
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`Day ${nextDay.dayNumber} ${nextDay.titleKo} 시작`}
+                style={styles.retry}
+              >
+                <Text style={styles.retryText}>다음 학습: Day {nextDay.dayNumber} →</Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => {
+                if (dayNumber) clearDayProgress(dayNumber);
+                navigation.replace('TrackASession', {
+                  unitId: unitIds?.[0] ?? unitId ?? '',
+                  unitIds,
+                  unitTitle: route.params?.unitTitle ?? '',
+                  dayNumber,
+                });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="처음부터 복습하기"
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>복습하기 🔄</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => navigation.goBack()}
+              accessibilityRole="button"
+              accessibilityLabel="홈으로 돌아가기"
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>홈으로</Text>
+            </Pressable>
+          </View>
         ) : sentence ? (
           <>
-            {stepLabel && (
-              <View style={styles.stepHeader}>
-                <View style={styles.stepBadge}>
-                  <Text style={styles.stepBadgeText}>{stepLabel}</Text>
-                </View>
-                {totalInStep > 0 && (
-                  <Text style={styles.progressText}>
-                    {completedCount} / {totalInStep} 완료
-                  </Text>
-                )}
-              </View>
-            )}
             <SentenceCard
               textEn={sentence.textEn}
               textKo={sentence.textKo}
@@ -345,44 +364,41 @@ export default function TrackASessionScreen() {
               }}
             />
             <AudioControls onPlay={handlePlay} playCount={playCount} />
-            <FeedbackBar
-              onPick={(fb) => {
-                void handleFeedback(fb);
-              }}
-            />
-            <Pressable
-              onPress={() => {
-                void loadNext();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="다음 문장"
-              style={styles.skip}
-            >
-              <Text style={styles.skipText}>건너뛰기 →</Text>
-            </Pressable>
+            <View style={styles.navRow}>
+              <Pressable
+                onPress={handlePrev}
+                disabled={!canGoBack}
+                accessibilityRole="button"
+                accessibilityLabel="이전 문장"
+                style={({ pressed }) => [
+                  styles.prevButton,
+                  { opacity: !canGoBack ? 0.4 : pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={styles.prevButtonText}>← 이전</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleNext}
+                accessibilityRole="button"
+                accessibilityLabel="다음 문장"
+                style={({ pressed }) => [
+                  styles.nextButton,
+                  {
+                    backgroundColor: theme.colors.primary,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Text style={styles.nextButtonText}>다음 →</Text>
+              </Pressable>
+            </View>
           </>
         ) : (
           <View style={styles.center}>
-            {stepLabel === '완료' ? (
-              <>
-                <Text style={styles.emptyTitle}>이 단원을 모두 학습했어요! 🎉</Text>
-                <Pressable
-                  onPress={() => navigation.goBack()}
-                  accessibilityRole="button"
-                  accessibilityLabel="단원 목록으로 돌아가기"
-                  style={styles.retry}
-                >
-                  <Text style={styles.retryText}>단원 목록으로</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Text style={styles.emptyTitle}>아직 내 레벨에 맞는 문장이 없어요.</Text>
-                <Text style={styles.emptyDetail}>
-                  내 탭에서 레벨을 조정하거나, 콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
-                </Text>
-              </>
-            )}
+            <Text style={styles.emptyTitle}>아직 내 레벨에 맞는 문장이 없어요.</Text>
+            <Text style={styles.emptyDetail}>
+              내 탭에서 레벨을 조정하거나, 콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -392,14 +408,9 @@ export default function TrackASessionScreen() {
 
 function makeStyles(theme: Theme) {
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: theme.colors.bg,
-    },
-    scroll: {
-      padding: theme.spacing.lg,
-      gap: theme.spacing.lg,
-    },
+    container: { flex: 1, backgroundColor: theme.colors.bg },
+    scroll: { padding: theme.spacing.lg, gap: theme.spacing.lg },
+    scrollFlex: { flex: 1 },
     center: {
       flex: 1,
       alignItems: 'center',
@@ -407,10 +418,7 @@ function makeStyles(theme: Theme) {
       padding: theme.spacing.xl,
       gap: theme.spacing.sm,
     },
-    errorTitle: {
-      ...theme.typography.button,
-      color: theme.colors.text,
-    },
+    errorTitle: { ...theme.typography.button, color: theme.colors.text },
     errorDetail: {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
@@ -423,18 +431,25 @@ function makeStyles(theme: Theme) {
       borderRadius: theme.radius.md,
       backgroundColor: theme.colors.primary,
     },
-    retryText: {
-      ...theme.typography.button,
-      color: theme.colors.primaryOn,
+    retryText: { ...theme.typography.button, color: theme.colors.primaryOn },
+    navRow: { flexDirection: 'row', gap: theme.spacing.sm },
+    prevButton: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: theme.spacing.md,
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
     },
-    skip: {
-      alignSelf: 'flex-end',
-      padding: theme.spacing.sm,
+    prevButtonText: { ...theme.typography.button, color: theme.colors.text },
+    nextButton: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: theme.spacing.md,
+      borderRadius: theme.radius.md,
     },
-    skipText: {
-      ...theme.typography.caption,
-      color: theme.colors.textMuted,
-    },
+    nextButtonText: { ...theme.typography.button, color: theme.colors.primaryOn },
     emptyTitle: {
       ...theme.typography.button,
       color: theme.colors.text,
@@ -445,26 +460,42 @@ function makeStyles(theme: Theme) {
       color: theme.colors.textMuted,
       textAlign: 'center',
     },
-    stepHeader: {
+    secondaryButton: {
+      marginTop: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.lg,
+      paddingVertical: theme.spacing.md,
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    secondaryButtonText: { ...theme.typography.button, color: theme.colors.text },
+    topBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      gap: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.lg,
+      paddingVertical: theme.spacing.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.colors.border,
+      backgroundColor: theme.colors.bg,
     },
-    stepBadge: {
-      alignSelf: 'flex-start',
+    progressTrack: {
+      flex: 1,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: theme.colors.border,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 3,
       backgroundColor: theme.colors.primary,
-      paddingHorizontal: theme.spacing.md,
-      paddingVertical: 4,
-      borderRadius: theme.radius.sm,
     },
-    stepBadgeText: {
-      ...theme.typography.caption,
-      color: theme.colors.primaryOn,
-      fontWeight: '600',
-    },
-    progressText: {
+    progressLabel: {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
+      minWidth: 48,
+      textAlign: 'right',
     },
   });
 }

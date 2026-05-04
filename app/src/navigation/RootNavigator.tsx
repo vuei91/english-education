@@ -29,9 +29,9 @@ export default function RootNavigator() {
   // 화면으로 전환해 준다 (온보딩 "학습 시작" 버튼 누른 뒤 RootTabs 로
   // 진입하는 경로가 여기서 완성된다).
   return (
-    <Stack.Navigator screenOptions={{ headerShown: true }}>
+    <Stack.Navigator screenOptions={{ headerShown: true, headerBackTitle: '', headerBackButtonDisplayMode: 'minimal' }}>
       {onboardingCompleted ? (
-        <Stack.Screen name="RootTabs" component={RootTabs} options={{ headerShown: false }} />
+        <Stack.Screen name="RootTabs" component={RootTabs} options={{ headerShown: false, title: '' }} />
       ) : (
         <Stack.Screen
           name="Onboarding"
@@ -47,7 +47,7 @@ export default function RootNavigator() {
       <Stack.Screen
         name="DayList"
         component={DayListScreen}
-        options={{ title: '100일 커리큘럼' }}
+        options={{ title: '30일 커리큘럼' }}
       />
       <Stack.Screen
         name="TrackASession"
