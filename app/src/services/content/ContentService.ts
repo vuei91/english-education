@@ -196,20 +196,25 @@ export class ContentService {
    */
   async getSentencesForSteps(
     stepIds: readonly string[],
-    maxCefrLevel: CEFRLevel,
+    maxCefrLevel?: CEFRLevel,
   ): Promise<Sentence[]> {
     if (stepIds.length === 0) return [];
-    const cefrOrder: CEFRLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
-    const allowed = cefrOrder.slice(0, cefrOrder.indexOf(maxCefrLevel) + 1);
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('sentences')
       .select(
         'id, track, text_en, text_ko, cefr_level, situation, source, license, curriculum_step_id, is_phrase, created_at',
       )
       .in('curriculum_step_id', stepIds as string[])
-      .in('cefr_level', allowed)
       .eq('status', 'production');
+
+    if (maxCefrLevel) {
+      const cefrOrder: CEFRLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
+      const allowed = cefrOrder.slice(0, cefrOrder.indexOf(maxCefrLevel) + 1);
+      query = query.in('cefr_level', allowed);
+    }
+
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
 
     const rows = data ?? [];

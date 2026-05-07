@@ -140,6 +140,12 @@ export type Sentence = {
 // 30-day curriculum (curriculum-30day-migration.md)
 // ---------------------------------------------------------------------------
 
+/** A single intro phrase shown before the main session. */
+export type IntroPhrase = {
+  en: string;
+  ko: string;
+};
+
 /**
  * A Day groups one or more `CurriculumUnit`s with ordering and chapter metadata.
  * The Day number (1–30) is the user-facing progression counter.
@@ -156,6 +162,7 @@ export type CurriculumDay = {
   unitId: string;
   unitIds: string[];
   cefrLevel: CEFRLevel;
+  introPhrases: IntroPhrase[];
 };
 
 /** Static chapter metadata. */
@@ -166,22 +173,22 @@ export type Chapter = {
   dayRange: [number, number];
 };
 
-/** The three chapters of the 30-day curriculum. */
+/** The three chapters of the 60-day curriculum. */
 export const CHAPTERS: readonly Chapter[] = [
-  { number: 1, titleKo: '기초 문장 훈련', subtitleKo: '영어 기본기 기르기', dayRange: [1, 8] },
+  { number: 1, titleKo: '기초 문장 훈련', subtitleKo: '영어 기본기 기르기', dayRange: [1, 15] },
   {
     number: 2,
-    titleKo: '확장 문장 훈련',
+    titleKo: '문장 확장 훈련',
     subtitleKo: '문장을 길게 만들기',
-    dayRange: [9, 20],
+    dayRange: [16, 38],
   },
   {
     number: 3,
-    titleKo: '일상 회화 훈련',
+    titleKo: '심화 표현 훈련',
     subtitleKo: '자연스러운 영어 말하기',
-    dayRange: [21, 30],
+    dayRange: [39, 60],
   },
 ] as const;
 
 /** Total days in the curriculum. */
-export const TOTAL_DAYS = 30;
+export const TOTAL_DAYS = 60;

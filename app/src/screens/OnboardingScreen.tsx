@@ -4,16 +4,14 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AuthService } from '../services/auth';
 import { useUserStore } from '../stores';
 import { useTheme, type Theme } from '../theme';
-import type { CEFRLevel, Track } from '../types/domain';
+import type { Track } from '../types/domain';
 
 /**
- * 3-step onboarding flow (Task 14.1–14.4, Req 18).
+ * 2-step onboarding flow (Task 14.1–14.4, Req 18).
  *
  * 1. Speech-free disclaimer — surfaces the core product principle up front
  *    so users never feel ambushed later (Req 18.2).
- * 2. CEFR self-assessment — 5 options from A1..C1. This is a fast self-pick
- *    rather than a quiz; matches docs/planning.md onboarding scope.
- * 3. Preferred track — Track A (short), Track B (long), or Both.
+ * 2. Preferred track — 회화 (short), 독해 (long), or Both.
  *
  * On finish we persist the choices in useUserStore (AsyncStorage) and
  * stamp an anonymous UUID so later services have an identity to attach to.
@@ -21,13 +19,12 @@ import type { CEFRLevel, Track } from '../types/domain';
  * reach the login screen from the Me tab later.
  */
 
-type Step = 'welcome' | 'level' | 'track';
+type Step = 'welcome' | 'track';
 type TrackChoice = Track | 'both';
 
 export default function OnboardingScreen() {
   const theme = useTheme();
   const [step, setStep] = useState<Step>('welcome');
-  const [cefr, setCefr] = useState<CEFRLevel>('A2');
   const [trackChoice, setTrackChoice] = useState<TrackChoice>('A');
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,7 +36,6 @@ export default function OnboardingScreen() {
       const anonymousId = await AuthService.signInAnonymouslyLocal();
       const state = useUserStore.getState();
       state.setAnonymousId(anonymousId);
-      state.setCefrLevel(cefr);
       // 'both' defaults the main tab to Track A; the user can freely pick either.
       state.setPreferredTrack(trackChoice === 'both' ? 'A' : trackChoice);
       state.completeOnboarding();
@@ -51,23 +47,14 @@ export default function OnboardingScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       {step === 'welcome' && (
-        <WelcomeStep theme={theme} onContinue={() => setStep('level')} />
-      )}
-      {step === 'level' && (
-        <LevelStep
-          theme={theme}
-          selected={cefr}
-          onSelect={setCefr}
-          onBack={() => setStep('welcome')}
-          onContinue={() => setStep('track')}
-        />
+        <WelcomeStep theme={theme} onContinue={() => setStep('track')} />
       )}
       {step === 'track' && (
         <TrackStep
           theme={theme}
           selected={trackChoice}
           onSelect={setTrackChoice}
-          onBack={() => setStep('level')}
+          onBack={() => setStep('welcome')}
           submitting={submitting}
           onFinish={handleFinish}
         />
@@ -104,60 +91,6 @@ function WelcomeStep({ theme, onContinue }: { theme: Theme; onContinue: () => vo
   );
 }
 
-function LevelStep({
-  theme,
-  selected,
-  onSelect,
-  onBack,
-  onContinue,
-}: {
-  theme: Theme;
-  selected: CEFRLevel;
-  onSelect: (level: CEFRLevel) => void;
-  onBack: () => void;
-  onContinue: () => void;
-}) {
-  const styles = makeStyles(theme);
-  const levels: { value: CEFRLevel; label: string; hint: string }[] = [
-    { value: 'A1', label: 'A1', hint: '이제 막 시작했어요' },
-    { value: 'A2', label: 'A2', hint: '여행·카페 기본 표현' },
-    { value: 'B1', label: 'B1', hint: '일상 대화' },
-    { value: 'B2', label: 'B2', hint: '뉴스·비즈니스 독해' },
-    { value: 'C1', label: 'C1', hint: '원서 읽기·글쓰기' },
-  ];
-  return (
-    <View style={styles.step}>
-      <Text style={styles.title}>내 레벨 고르기</Text>
-      <Text style={styles.subtitle}>설정에서 언제든 바꿀 수 있어요.</Text>
-      <View style={{ gap: theme.spacing.sm }}>
-        {levels.map((lv) => (
-          <Pressable
-            key={lv.value}
-            onPress={() => onSelect(lv.value)}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: selected === lv.value }}
-            accessibilityLabel={`${lv.label} — ${lv.hint}`}
-            style={[
-              styles.optionRow,
-              {
-                borderColor: selected === lv.value ? theme.colors.primary : theme.colors.border,
-                backgroundColor: selected === lv.value ? theme.colors.surface : theme.colors.bg,
-              },
-            ]}
-          >
-            <Text style={styles.optionLabel}>{lv.label}</Text>
-            <Text style={styles.optionHint}>{lv.hint}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <View style={styles.buttonRow}>
-        <SecondaryButton theme={theme} label="이전" onPress={onBack} />
-        <PrimaryButton theme={theme} label="계속" onPress={onContinue} />
-      </View>
-    </View>
-  );
-}
-
 function TrackStep({
   theme,
   selected,
@@ -175,8 +108,8 @@ function TrackStep({
 }) {
   const styles = makeStyles(theme);
   const options: { value: TrackChoice; label: string; hint: string }[] = [
-    { value: 'A', label: '짧은 문장 (트랙 A)', hint: '회화 패턴 + 드릴' },
-    { value: 'B', label: '긴 문장 (트랙 B)', hint: '청킹 + 독해' },
+    { value: 'A', label: '회화', hint: '짧은 문장 패턴 + 드릴' },
+    { value: 'B', label: '독해', hint: '긴 문장 청킹 + 독해' },
     { value: 'both', label: '둘 다', hint: '홈 탭에서 자유롭게 선택' },
   ];
   return (

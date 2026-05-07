@@ -67,6 +67,7 @@ type DayRow = {
   subtitle_ko: string | null;
   is_review: boolean;
   cefr_level: CEFRLevel;
+  intro_phrases: Array<{ en: string; ko: string }> | null;
   curriculum_day_unit?: Array<{ unit_id: string; order_index: number }> | null;
 };
 
@@ -453,6 +454,7 @@ function mapDayRow(row: DayRow): CurriculumDay {
     unitId: unitIds[0] ?? '',
     unitIds,
     cefrLevel: row.cefr_level,
+    introPhrases: (row.intro_phrases ?? []).map((p) => ({ en: p.en, ko: p.ko })),
   };
 }
 

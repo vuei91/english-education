@@ -12,7 +12,7 @@ import { getSupabaseClient } from '../../lib/supabase';
 import { getContentDatabase } from '../../db';
 import { useSessionStore, useUserStore, useVocabStore, useProgressStore } from '../../stores';
 import { useTheme, type Theme } from '../../theme';
-import type { CurriculumDay, CurriculumStep } from '../../types/domain';
+import type { CurriculumDay, CurriculumStep, IntroPhrase } from '../../types/domain';
 import AudioControls from './AudioControls';
 import SentenceCard, { type CardMode } from './SentenceCard';
 
@@ -56,6 +56,11 @@ export default function TrackASessionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [playCount, setPlayCount] = useState(0);
   const [nextDay, setNextDay] = useState<CurriculumDay | null>(null);
+
+  // Intro phase state
+  const [introPhrases, setIntroPhrases] = useState<IntroPhrase[]>([]);
+  const [introIndex, setIntroIndex] = useState(0);
+  const [phase, setPhase] = useState<'intro' | 'main'>('main');
 
   /** Refs for service singletons. */
   const contentSvcRef = useRef<ContentService | null>(null);
@@ -112,9 +117,9 @@ export default function TrackASessionScreen() {
       }
       allStepsRef.current = allSteps;
 
-      // Fetch all sentences in one shot
+      // Fetch all sentences in one shot (no level filter — curriculum order is the guide)
       const stepIds = allSteps.map((s) => s.id);
-      const loaded = await svc.getSentencesForSteps(stepIds, cefrLevel);
+      const loaded = await svc.getSentencesForSteps(stepIds);
       setSentences(loaded);
 
       // Restore position from persisted state
@@ -122,6 +127,14 @@ export default function TrackASessionScreen() {
         const savedIndex = dayProgress[dayNumber] ?? 0;
         const clamped = Math.max(0, Math.min(savedIndex, loaded.length - 1));
         setCurrentIndex(clamped);
+
+        // Load intro phrases for this Day
+        const dayData = await csvc.getDayByNumber(dayNumber);
+        if (dayData && dayData.introPhrases.length > 0 && savedIndex === 0) {
+          setIntroPhrases(dayData.introPhrases);
+          setPhase('intro');
+          setIntroIndex(0);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -192,6 +205,42 @@ export default function TrackASessionScreen() {
   const useKoToEn = hasKorean && currentIndex >= EN_FIRST_COUNT;
   const cardMode: CardMode = useKoToEn ? 'ko-to-en' : 'en-to-ko';
   const allDone = totalCount > 0 && currentIndex >= totalCount;
+
+  // --- Intro phase handlers ---
+  const currentIntro = introPhrases[introIndex] as IntroPhrase | undefined;
+
+  const handleIntroPlay = useCallback(async () => {
+    if (!currentIntro) return;
+    await audioPlayer.speak(currentIntro.en, { language: 'en-US' });
+    setPlayCount((n) => n + 1);
+  }, [currentIntro]);
+
+  const handleIntroNext = useCallback(() => {
+    if (introIndex < introPhrases.length - 1) {
+      setIntroIndex(introIndex + 1);
+      setPlayCount(0);
+    } else {
+      // Intro done → switch to main phase
+      setPhase('main');
+      setPlayCount(0);
+    }
+  }, [introIndex, introPhrases.length]);
+
+  const handleIntroPrev = useCallback(() => {
+    if (introIndex > 0) {
+      setIntroIndex(introIndex - 1);
+      setPlayCount(0);
+    }
+  }, [introIndex]);
+
+  // Auto-play intro phrase when it changes
+  useEffect(() => {
+    if (phase !== 'intro' || !currentIntro) return;
+    setPlayCount(0);
+    void audioPlayer.speak(currentIntro.en, { language: 'en-US' }).then(() => {
+      setPlayCount(1);
+    });
+  }, [phase, currentIntro]);
 
   const handlePlay = useCallback(async () => {
     if (!sentence) return;
@@ -264,7 +313,18 @@ export default function TrackASessionScreen() {
 
   return (
     <View style={styles.container}>
-      {totalCount > 0 && !allDone && (
+      {phase === 'intro' ? (
+        <View style={styles.topBar}>
+          <View style={styles.progressTrack}>
+            <View
+              style={[styles.progressFill, { width: `${((introIndex + 1) / introPhrases.length) * 100}%` }]}
+            />
+          </View>
+          <Text style={styles.progressLabel}>
+            핵심 패턴 {introIndex + 1} / {introPhrases.length}
+          </Text>
+        </View>
+      ) : totalCount > 0 && !allDone ? (
         <View style={styles.topBar}>
           <View style={styles.progressTrack}>
             <View
@@ -278,7 +338,7 @@ export default function TrackASessionScreen() {
             {currentIndex + 1} / {totalCount}
           </Text>
         </View>
-      )}
+      ) : null}
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
@@ -304,6 +364,45 @@ export default function TrackASessionScreen() {
               <Text style={styles.retryText}>다시 시도</Text>
             </Pressable>
           </View>
+        ) : phase === 'intro' && currentIntro ? (
+          <>
+            <View style={styles.introCard}>
+              <Text style={styles.introLabel}>핵심 패턴</Text>
+              <Text style={styles.introEn}>{currentIntro.en}</Text>
+              <Text style={styles.introKo}>{currentIntro.ko}</Text>
+            </View>
+            <AudioControls onPlay={handleIntroPlay} playCount={playCount} />
+            <View style={styles.navRow}>
+              <Pressable
+                onPress={handleIntroPrev}
+                disabled={introIndex <= 0}
+                accessibilityRole="button"
+                accessibilityLabel="이전 패턴"
+                style={({ pressed }) => [
+                  styles.prevButton,
+                  { opacity: introIndex <= 0 ? 0.4 : pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={styles.prevButtonText}>← 이전</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleIntroNext}
+                accessibilityRole="button"
+                accessibilityLabel={introIndex < introPhrases.length - 1 ? '다음 패턴' : '학습 시작'}
+                style={({ pressed }) => [
+                  styles.nextButton,
+                  {
+                    backgroundColor: theme.colors.primary,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Text style={styles.nextButtonText}>
+                  {introIndex < introPhrases.length - 1 ? '다음 →' : '학습 시작 →'}
+                </Text>
+              </Pressable>
+            </View>
+          </>
         ) : allDone ? (
           <View style={styles.center}>
             <Text style={styles.emptyTitle}>이 단원을 모두 학습했어요! 🎉</Text>
@@ -395,9 +494,9 @@ export default function TrackASessionScreen() {
           </>
         ) : (
           <View style={styles.center}>
-            <Text style={styles.emptyTitle}>아직 내 레벨에 맞는 문장이 없어요.</Text>
+            <Text style={styles.emptyTitle}>아직 학습할 문장이 없어요.</Text>
             <Text style={styles.emptyDetail}>
-              내 탭에서 레벨을 조정하거나, 콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
+              콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
             </Text>
           </View>
         )}
@@ -496,6 +595,32 @@ function makeStyles(theme: Theme) {
       color: theme.colors.textMuted,
       minWidth: 48,
       textAlign: 'right',
+    },
+    introCard: {
+      backgroundColor: theme.colors.surfaceElevated,
+      borderRadius: theme.radius.lg,
+      padding: theme.spacing.xl,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: 'center',
+      gap: theme.spacing.md,
+    },
+    introLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    introEn: {
+      ...theme.typography.sentence,
+      color: theme.colors.text,
+      fontSize: 24,
+      textAlign: 'center',
+    },
+    introKo: {
+      ...theme.typography.body,
+      color: theme.colors.textSubtle,
+      textAlign: 'center',
     },
   });
 }

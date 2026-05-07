@@ -20,9 +20,9 @@ const TAB_ICONS: Record<
   { focused: keyof typeof Ionicons.glyphMap; unfocused: keyof typeof Ionicons.glyphMap }
 > = {
   Dashboard: { focused: 'home', unfocused: 'home-outline' },
-  // Track A = short conversational sentences → chat bubble conveys "speak-like" context
+  // 회화 = short conversational sentences → chat bubble
   TrackA: { focused: 'chatbubble-ellipses', unfocused: 'chatbubble-ellipses-outline' },
-  // Track B = longer reading sentences → book
+  // 독해 = longer reading sentences → book
   TrackB: { focused: 'book', unfocused: 'book-outline' },
   Me: { focused: 'person-circle', unfocused: 'person-circle-outline' },
 };
@@ -45,8 +45,8 @@ export default function RootTabs() {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: '홈' }} />
-      <Tab.Screen name="TrackA" component={DayListScreen} options={{ title: '트랙 A' }} />
-      <Tab.Screen name="TrackB" component={TrackBSessionScreen} options={{ title: '트랙 B' }} />
+      <Tab.Screen name="TrackA" component={DayListScreen} options={{ title: '회화' }} />
+      <Tab.Screen name="TrackB" component={TrackBSessionScreen} options={{ title: '독해' }} />
       <Tab.Screen name="Me" component={MeScreen} options={{ title: '내 정보' }} />
     </Tab.Navigator>
   );

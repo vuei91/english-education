@@ -11,7 +11,7 @@ import {
   useUserStore,
 } from '../stores';
 import { useTheme, type Theme } from '../theme';
-import type { CEFRLevel, Track } from '../types/domain';
+import type { Track } from '../types/domain';
 
 /**
  * Me tab — personal settings + secondary entry for Recent Words
@@ -30,8 +30,6 @@ export default function MeScreen() {
   const dailyGoal = useProgressStore((s) => s.dailyGoal);
   const setDailyGoal = useProgressStore((s) => s.setDailyGoal);
 
-  const cefrLevel = useUserStore((s) => s.cefrLevel);
-  const setCefrLevel = useUserStore((s) => s.setCefrLevel);
   const preferredTrack = useUserStore((s) => s.preferredTrack);
   const setPreferredTrack = useUserStore((s) => s.setPreferredTrack);
 
@@ -57,35 +55,18 @@ export default function MeScreen() {
         </View>
       </Section>
 
-      <Section title="선호 트랙" theme={theme}>
+      <Section title="선호 학습" theme={theme}>
         <View style={styles.chipRow}>
           {(['A', 'B'] as const satisfies readonly Track[]).map((t) => (
             <Chip
               key={t}
-              label={`트랙 ${t}`}
+              label={t === 'A' ? '회화' : '독해'}
               active={preferredTrack === t}
               onPress={() => setPreferredTrack(t)}
-              accessibilityLabel={`트랙 ${t} 선호`}
+              accessibilityLabel={t === 'A' ? '회화 선호' : '독해 선호'}
               theme={theme}
             />
           ))}
-        </View>
-      </Section>
-
-      <Section title="레벨" theme={theme}>
-        <View style={styles.chipRow}>
-          {(['A1', 'A2', 'B1', 'B2', 'C1'] as const satisfies readonly CEFRLevel[]).map(
-            (lvl) => (
-              <Chip
-                key={lvl}
-                label={lvl}
-                active={cefrLevel === lvl}
-                onPress={() => setCefrLevel(lvl)}
-                accessibilityLabel={`레벨 ${lvl}로 설정`}
-                theme={theme}
-              />
-            ),
-          )}
         </View>
       </Section>
 

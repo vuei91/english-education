@@ -104,10 +104,14 @@ export default function DayListScreen() {
           </View>
           <View style={styles.dayBody}>
             <Text style={styles.dayTitle}>{item.titleKo}</Text>
-            <Text style={styles.dayMeta}>
-              {item.cefrLevel}
-              {item.isReview ? ' · 복습' : ''}
-            </Text>
+            {item.subtitleKo ? (
+              <Text style={styles.dayDescription} numberOfLines={2}>
+                {item.subtitleKo}
+              </Text>
+            ) : null}
+            {item.isReview ? (
+              <Text style={styles.dayMeta}>복습</Text>
+            ) : null}
           </View>
           {isCompleted && <Text style={styles.checkMark}>✓</Text>}
         </Pressable>
@@ -154,7 +158,7 @@ export default function DayListScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <View style={styles.progressHeader}>
-        <Text style={styles.progressTitle}>30일 챌린지</Text>
+        <Text style={styles.progressTitle}>60일 챌린지</Text>
         <Text style={styles.progressCount}>
           {completedCount} / {TOTAL_DAYS}일 완료
         </Text>
@@ -267,6 +271,12 @@ function makeStyles(theme: Theme) {
     dayTitle: {
       ...theme.typography.body,
       color: theme.colors.text,
+    },
+    dayDescription: {
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
+      fontSize: 12,
+      lineHeight: 16,
     },
     dayMeta: {
       ...theme.typography.caption,

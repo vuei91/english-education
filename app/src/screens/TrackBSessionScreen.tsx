@@ -241,7 +241,7 @@ export default function TrackBSessionScreen() {
           <View style={styles.center}>
             <Text style={styles.emptyTitle}>아직 긴 지문이 없어요.</Text>
             <Text style={styles.emptyDetail}>
-              내 탭에서 레벨을 조정하거나, 콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
+              콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
             </Text>
           </View>
         ) : (
