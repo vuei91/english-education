@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wkwk2805.sentenceflow"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,10 +27,6 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      "expo-sqlite",
-      "expo-web-browser",
-      "expo-audio"
-    ]
+    "plugins": ["expo-sqlite", "expo-web-browser", "expo-audio"]
   }
 }
