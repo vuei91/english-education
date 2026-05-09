@@ -158,6 +158,7 @@ export type CurriculumDay = {
   chapter: 1 | 2 | 3;
   titleKo: string;
   subtitleKo: string | null;
+  descriptionKo: string | null;
   isReview: boolean;
   unitId: string;
   unitIds: string[];
@@ -170,22 +171,34 @@ export type Chapter = {
   number: 1 | 2 | 3;
   titleKo: string;
   subtitleKo: string;
+  descriptionKo: string;
   dayRange: [number, number];
 };
 
 /** The three chapters of the 60-day curriculum. */
 export const CHAPTERS: readonly Chapter[] = [
-  { number: 1, titleKo: '기초 문장 훈련', subtitleKo: '영어 기본기 기르기', dayRange: [1, 15] },
+  {
+    number: 1,
+    titleKo: '기초 문장 훈련',
+    subtitleKo: '영어 기본기 기르기',
+    descriptionKo:
+      '주어+동사+목적어 기본 구조부터 시작합니다. 일상에서 바로 쓸 수 있는 짧은 문장을 반복 청취하며 영어 어순에 익숙해지세요. 매일 핵심 패턴 하나를 집중 훈련합니다.',
+    dayRange: [1, 15],
+  },
   {
     number: 2,
     titleKo: '문장 확장 훈련',
     subtitleKo: '문장을 길게 만들기',
+    descriptionKo:
+      '접속사, 관계대명사, 부사절을 활용해 문장을 확장합니다. 짧은 문장 여러 개를 하나의 긴 문장으로 연결하는 연습을 통해 독해력과 표현력을 동시에 키웁니다.',
     dayRange: [16, 38],
   },
   {
     number: 3,
     titleKo: '심화 표현 훈련',
     subtitleKo: '자연스러운 영어 말하기',
+    descriptionKo:
+      '원어민이 실제로 쓰는 관용 표현, 구동사, 뉘앙스 차이를 익힙니다. 긴 지문을 청킹으로 끊어 듣고 독해 퀴즈로 이해도를 확인하며 실전 영어에 가까워집니다.',
     dayRange: [39, 60],
   },
 ] as const;

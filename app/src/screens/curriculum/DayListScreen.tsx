@@ -16,6 +16,7 @@ import { useTheme, type Theme } from '../../theme';
 type DaySection = {
   title: string;
   subtitle: string;
+  description: string;
   data: CurriculumDay[];
 };
 
@@ -68,6 +69,7 @@ export default function DayListScreen() {
     return CHAPTERS.filter((ch) => !filterChapter || ch.number === filterChapter).map((ch) => ({
       title: `Chapter ${ch.number}. ${ch.titleKo}`,
       subtitle: ch.subtitleKo,
+      description: ch.descriptionKo,
       data: grouped.get(ch.number) ?? [],
     }));
   }, [days, filterChapter]);
@@ -109,9 +111,7 @@ export default function DayListScreen() {
                 {item.subtitleKo}
               </Text>
             ) : null}
-            {item.isReview ? (
-              <Text style={styles.dayMeta}>복습</Text>
-            ) : null}
+            {item.isReview ? <Text style={styles.dayMeta}>복습</Text> : null}
           </View>
           {isCompleted && <Text style={styles.checkMark}>✓</Text>}
         </Pressable>
@@ -125,6 +125,7 @@ export default function DayListScreen() {
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>{section.title}</Text>
         <Text style={styles.sectionSubtitle}>{section.subtitle}</Text>
+        <Text style={styles.sectionDescription}>{section.description}</Text>
       </View>
     ),
     [styles],
@@ -234,6 +235,13 @@ function makeStyles(theme: Theme) {
     sectionSubtitle: {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
+    },
+    sectionDescription: {
+      ...theme.typography.body,
+      color: theme.colors.textMuted,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: theme.spacing.xs,
     },
     dayCard: {
       flexDirection: 'row',

@@ -3,7 +3,7 @@ import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigat
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 /**
- * Root stack hosts onboarding, the main tabs, and modal screens that can be
+ * Root stack hosts the main tabs and modal screens that can be
  * pushed from anywhere (Vocab Helper bottom sheet, Rewarded confirm, etc).
  *
  * Modals live on the root stack so they can appear over any tab without
@@ -11,7 +11,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
  * "Vocab Helper never becomes a standalone tab" (mobile-implementation.md).
  */
 export type RootStackParamList = {
-  Onboarding: undefined;
   RootTabs: NavigatorScreenParams<RootTabsParamList>;
   /** 30-day curriculum list, optionally filtered to a chapter. */
   DayList: { chapter?: 1 | 2 | 3 };

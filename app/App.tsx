@@ -7,11 +7,7 @@ import { ActivityIndicator, View } from 'react-native';
 import RootNavigator from './src/navigation/RootNavigator';
 import { audioService } from './src/services/audio';
 import { useHydrateUserStore } from './src/stores/useUserStore';
-import {
-  darkNavigationTheme,
-  lightNavigationTheme,
-  useTheme,
-} from './src/theme';
+import { darkNavigationTheme, lightNavigationTheme, useTheme } from './src/theme';
 
 export default function App() {
   useEffect(() => {
@@ -35,9 +31,7 @@ function ThemedNavigation() {
   const navTheme = theme.mode === 'dark' ? darkNavigationTheme : lightNavigationTheme;
 
   if (!hydrated) {
-    // Brief splash while we read persisted onboarding state from AsyncStorage.
-    // Without this gate the navigator would flash the "start onboarding"
-    // screen even for returning users.
+    // Brief splash while we read persisted state from AsyncStorage.
     return (
       <View
         style={{

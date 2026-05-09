@@ -60,7 +60,8 @@ export default function TrackASessionScreen() {
   // Intro phase state
   const [introPhrases, setIntroPhrases] = useState<IntroPhrase[]>([]);
   const [introIndex, setIntroIndex] = useState(0);
-  const [phase, setPhase] = useState<'intro' | 'main'>('main');
+  const [phase, setPhase] = useState<'day-intro' | 'intro' | 'main'>('day-intro');
+  const [dayDescription, setDayDescription] = useState<string | null>(null);
 
   /** Refs for service singletons. */
   const contentSvcRef = useRef<ContentService | null>(null);
@@ -130,11 +131,31 @@ export default function TrackASessionScreen() {
 
         // Load intro phrases for this Day
         const dayData = await csvc.getDayByNumber(dayNumber);
-        if (dayData && dayData.introPhrases.length > 0 && savedIndex === 0) {
-          setIntroPhrases(dayData.introPhrases);
-          setPhase('intro');
-          setIntroIndex(0);
+
+        if (savedIndex === 0) {
+          // Day 설명이 있으면 패턴 전에 보여준다
+          if (dayData && dayData.descriptionKo) {
+            setDayDescription(dayData.descriptionKo);
+            setPhase('day-intro');
+          }
+
+          // Load intro phrases for after day-intro
+          if (dayData && dayData.introPhrases.length > 0) {
+            setIntroPhrases(dayData.introPhrases);
+            setIntroIndex(0);
+            if (!dayData.descriptionKo) {
+              setPhase('intro');
+            }
+          } else if (!dayData?.descriptionKo) {
+            setPhase('main');
+          }
+        } else {
+          // 이어하기: 바로 본 학습으로
+          setPhase('main');
         }
+      } else {
+        // dayNumber 없이 직접 진입한 경우
+        setPhase('main');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -172,7 +193,7 @@ export default function TrackASessionScreen() {
 
   /** Present the current sentence's audio + start session state. */
   useEffect(() => {
-    if (!sentence) return;
+    if (!sentence || phase !== 'main') return;
     const hasKorean = Boolean(sentence.textKo);
     const useKoToEn = hasKorean && currentIndex >= EN_FIRST_COUNT;
     startSession('A', sentence.id);
@@ -191,11 +212,11 @@ export default function TrackASessionScreen() {
     if (dayNumber) {
       setDayProgress(dayNumber, currentIndex);
     }
-  }, [sentence, currentIndex, dayNumber, setDayProgress, startSession]);
+  }, [sentence, currentIndex, dayNumber, phase, setDayProgress, startSession]);
 
   /** Keep header title clean. */
   useEffect(() => {
-    const base = dayNumber ? `Day ${dayNumber}` : route.params?.unitTitle ?? '';
+    const base = dayNumber ? `Day ${dayNumber}` : (route.params?.unitTitle ?? '');
     navigation.setOptions({ title: base });
   }, [dayNumber, navigation, route.params?.unitTitle]);
 
@@ -241,6 +262,15 @@ export default function TrackASessionScreen() {
       setPlayCount(1);
     });
   }, [phase, currentIntro]);
+
+  /** Dismiss day intro → move to intro phrases or main. */
+  const handleDayIntroDismiss = useCallback(() => {
+    if (introPhrases.length > 0) {
+      setPhase('intro');
+    } else {
+      setPhase('main');
+    }
+  }, [introPhrases.length]);
 
   const handlePlay = useCallback(async () => {
     if (!sentence) return;
@@ -317,7 +347,10 @@ export default function TrackASessionScreen() {
         <View style={styles.topBar}>
           <View style={styles.progressTrack}>
             <View
-              style={[styles.progressFill, { width: `${((introIndex + 1) / introPhrases.length) * 100}%` }]}
+              style={[
+                styles.progressFill,
+                { width: `${((introIndex + 1) / introPhrases.length) * 100}%` },
+              ]}
             />
           </View>
           <Text style={styles.progressLabel}>
@@ -327,9 +360,7 @@ export default function TrackASessionScreen() {
       ) : totalCount > 0 && !allDone ? (
         <View style={styles.topBar}>
           <View style={styles.progressTrack}>
-            <View
-              style={[styles.progressFill, { width: `${Math.min(progress * 100, 100)}%` }]}
-            />
+            <View style={[styles.progressFill, { width: `${Math.min(progress * 100, 100)}%` }]} />
           </View>
           <Text
             style={styles.progressLabel}
@@ -364,6 +395,28 @@ export default function TrackASessionScreen() {
               <Text style={styles.retryText}>다시 시도</Text>
             </Pressable>
           </View>
+        ) : phase === 'day-intro' && dayDescription ? (
+          <View style={styles.dayIntroCard}>
+            <Text style={styles.dayIntroLabel}>Day {dayNumber}</Text>
+            <Text style={styles.dayIntroTitle}>{route.params?.unitTitle}</Text>
+            <Text style={styles.dayIntroDescription}>{dayDescription}</Text>
+            <Pressable
+              onPress={handleDayIntroDismiss}
+              accessibilityRole="button"
+              accessibilityLabel="학습 시작"
+              style={({ pressed }) => [
+                styles.nextButton,
+                {
+                  backgroundColor: theme.colors.primary,
+                  opacity: pressed ? 0.85 : 1,
+                  marginTop: theme.spacing.lg,
+                  alignSelf: 'stretch',
+                },
+              ]}
+            >
+              <Text style={styles.nextButtonText}>시작하기 →</Text>
+            </Pressable>
+          </View>
         ) : phase === 'intro' && currentIntro ? (
           <>
             <View style={styles.introCard}>
@@ -388,7 +441,9 @@ export default function TrackASessionScreen() {
               <Pressable
                 onPress={handleIntroNext}
                 accessibilityRole="button"
-                accessibilityLabel={introIndex < introPhrases.length - 1 ? '다음 패턴' : '학습 시작'}
+                accessibilityLabel={
+                  introIndex < introPhrases.length - 1 ? '다음 패턴' : '학습 시작'
+                }
                 style={({ pressed }) => [
                   styles.nextButton,
                   {
@@ -495,9 +550,7 @@ export default function TrackASessionScreen() {
         ) : (
           <View style={styles.center}>
             <Text style={styles.emptyTitle}>아직 학습할 문장이 없어요.</Text>
-            <Text style={styles.emptyDetail}>
-              콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
-            </Text>
+            <Text style={styles.emptyDetail}>콘텐츠가 충분히 쌓인 뒤 다시 와주세요.</Text>
           </View>
         )}
       </ScrollView>
@@ -621,6 +674,37 @@ function makeStyles(theme: Theme) {
       ...theme.typography.body,
       color: theme.colors.textSubtle,
       textAlign: 'center',
+    },
+    dayIntroCard: {
+      backgroundColor: theme.colors.surfaceElevated,
+      borderRadius: theme.radius.lg,
+      padding: theme.spacing.xl,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      alignItems: 'center',
+      gap: theme.spacing.sm,
+      marginTop: theme.spacing.xl,
+    },
+    dayIntroLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.primary,
+      textTransform: 'uppercase',
+      letterSpacing: 1.5,
+      fontWeight: '700',
+    },
+    dayIntroTitle: {
+      ...theme.typography.heading,
+      color: theme.colors.text,
+      fontSize: 20,
+      textAlign: 'center',
+    },
+    dayIntroDescription: {
+      ...theme.typography.body,
+      color: theme.colors.text,
+      fontSize: 14,
+      lineHeight: 22,
+      textAlign: 'center',
+      marginTop: theme.spacing.md,
     },
   });
 }

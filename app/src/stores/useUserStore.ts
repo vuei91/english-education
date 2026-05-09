@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect } from 'react';
 import { create } from 'zustand';
 
+import { AuthService } from '../services/auth';
 import type { CEFRLevel, Track } from '../types/domain';
 
 /**
@@ -97,13 +98,31 @@ export const useUserStore = create<UserState & UserActions>((set, get) => ({
   },
   hydrate: async () => {
     const persisted = await readPersisted();
-    set({
-      cefrLevel: persisted?.cefrLevel ?? initialState.cefrLevel,
-      preferredTrack: persisted?.preferredTrack ?? initialState.preferredTrack,
-      onboardingCompleted:
-        persisted?.onboardingCompleted ?? initialState.onboardingCompleted,
-      hydrated: true,
-    });
+    const wasOnboarded = persisted?.onboardingCompleted ?? false;
+
+    // 인트로 없이 바로 학습 진입: 첫 실행이면 자동으로 온보딩 완료 처리
+    if (!wasOnboarded) {
+      const anonymousId = await AuthService.signInAnonymouslyLocal();
+      set({
+        cefrLevel: persisted?.cefrLevel ?? initialState.cefrLevel,
+        preferredTrack: persisted?.preferredTrack ?? initialState.preferredTrack,
+        onboardingCompleted: true,
+        anonymousId,
+        hydrated: true,
+      });
+      void writePersisted({
+        cefrLevel: persisted?.cefrLevel ?? initialState.cefrLevel,
+        preferredTrack: persisted?.preferredTrack ?? initialState.preferredTrack,
+        onboardingCompleted: true,
+      });
+    } else {
+      set({
+        cefrLevel: persisted?.cefrLevel ?? initialState.cefrLevel,
+        preferredTrack: persisted?.preferredTrack ?? initialState.preferredTrack,
+        onboardingCompleted: true,
+        hydrated: true,
+      });
+    }
   },
 }));
 
