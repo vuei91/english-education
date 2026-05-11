@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- 
+    Fluen Logo — Supabase-inspired design system
+    White canvas, single emerald accent, near-black ink
+  -->
+  
+  <!-- Clean white background with subtle rounded corners -->
+  <rect width="512" height="512" rx="112" fill="#ffffff"/>
+  
+  <!-- F lettermark — near-black ink with emerald wave accent -->
+  <!-- F vertical stroke -->
+  <path d="M 150 120 L 150 392" 
+        stroke="#171717" stroke-width="42" stroke-linecap="round" fill="none"/>
+  
+  <!-- F top horizontal — emerald wave -->
+  <path d="M 150 120 Q 220 95, 290 120 Q 340 140, 380 120" 
+        stroke="#3ecf8e" stroke-width="42" stroke-linecap="round" fill="none"/>
+  
+  <!-- F middle horizontal — emerald wave (lighter) -->
+  <path d="M 150 238 Q 210 215, 270 238 Q 320 258, 350 238" 
+        stroke="#3ecf8e" stroke-width="36" stroke-linecap="round" fill="none" opacity="0.7"/>
+  
+  <!-- Flow lines — subtle grey waves -->
+  <path d="M 230 320 Q 275 305, 320 320 Q 365 335, 395 320" 
+        stroke="#dfdfdf" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <path d="M 250 362 Q 290 349, 330 362 Q 370 375, 395 362" 
+        stroke="#ededed" stroke-width="10" stroke-linecap="round" fill="none"/>
+</svg>

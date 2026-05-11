@@ -1,5 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, View } from 'react-native';
@@ -8,6 +9,9 @@ import RootNavigator from './src/navigation/RootNavigator';
 import { audioService } from './src/services/audio';
 import { useHydrateUserStore } from './src/stores/useUserStore';
 import { darkNavigationTheme, lightNavigationTheme, useTheme } from './src/theme';
+
+// Keep splash visible while we load persisted state
+SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   useEffect(() => {
@@ -30,20 +34,16 @@ function ThemedNavigation() {
   const hydrated = useHydrateUserStore();
   const navTheme = theme.mode === 'dark' ? darkNavigationTheme : lightNavigationTheme;
 
+  useEffect(() => {
+    if (hydrated) {
+      // State loaded — hide the native splash screen
+      SplashScreen.hideAsync();
+    }
+  }, [hydrated]);
+
   if (!hydrated) {
-    // Brief splash while we read persisted state from AsyncStorage.
-    return (
-      <View
-        style={{
-          flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: theme.colors.bg,
-        }}
-      >
-        <ActivityIndicator color={theme.colors.primary} />
-      </View>
-    );
+    // Keep showing native splash (don't render anything visible)
+    return null;
   }
 
   return (

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "SentenceFlow",
-    "slug": "sentenceflow",
+    "name": "Fluen",
+    "slug": "fluen",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,9 +12,10 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "primaryColor": "#3ecf8e",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.wkwk2805.sentenceflow"
+      "bundleIdentifier": "com.wkwk2805.fluen"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,11 +23,31 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.wkwk2805.fluen"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-sqlite", "expo-web-browser", "expo-audio"]
+    "plugins": [
+      "expo-sqlite",
+      "expo-web-browser",
+      "expo-audio",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ]
+    ]
   }
 }

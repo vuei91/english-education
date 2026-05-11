@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1284 2778" fill="none">
+  <!-- 
+    Fluen Splash — Supabase-inspired
+    White canvas commitment, emerald accent, no atmospheric gradients
+  -->
+  
+  <!-- Pure white background -->
+  <rect width="1284" height="2778" fill="#ffffff"/>
+  
+  <!-- Subtle hairline decoration (bottom) -->
+  <path d="M 0 2400 Q 321 2360, 642 2400 Q 963 2440, 1284 2400 L 1284 2778 L 0 2778 Z" 
+        fill="#fafafa"/>
+  
+  <!-- Central logo: F lettermark -->
+  <g transform="translate(492, 1050)">
+    <!-- F vertical stroke -->
+    <path d="M 60 0 L 60 320" 
+          stroke="#171717" stroke-width="50" stroke-linecap="round" fill="none"/>
+    <!-- F top wave — emerald -->
+    <path d="M 60 0 Q 140 -30, 220 0 Q 280 25, 330 0" 
+          stroke="#3ecf8e" stroke-width="50" stroke-linecap="round" fill="none"/>
+    <!-- F middle wave — emerald lighter -->
+    <path d="M 60 140 Q 130 112, 200 140 Q 255 162, 295 140" 
+          stroke="#3ecf8e" stroke-width="44" stroke-linecap="round" fill="none" opacity="0.7"/>
+    <!-- Flow lines -->
+    <path d="M 160 235 Q 210 220, 260 235 Q 310 250, 340 235" 
+          stroke="#dfdfdf" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <path d="M 180 278 Q 225 265, 270 278 Q 315 291, 340 278" 
+          stroke="#ededed" stroke-width="11" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- App name — near-black, weight 500 -->
+  <text x="642" y="1500" 
+        font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" 
+        font-size="76" 
+        font-weight="500" 
+        fill="#171717" 
+        text-anchor="middle" 
+        letter-spacing="-1.5">
+    Fluen
+  </text>
+  
+  <!-- Tagline — muted grey -->
+  <text x="642" y="1570" 
+        font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" 
+        font-size="32" 
+        font-weight="400" 
+        fill="#9a9a9a" 
+        text-anchor="middle">
+    문장으로 흐르는 영어
+  </text>
+</svg>

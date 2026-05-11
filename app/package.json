@@ -29,6 +29,7 @@
     "expo-auth-session": "~7.0.11",
     "expo-crypto": "~15.0.9",
     "expo-speech": "~14.0.8",
+    "expo-splash-screen": "^55.0.20",
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.11",
