@@ -27,7 +27,7 @@ beforeEach(async () => {
 describe('App', () => {
   it('첫 실행 시 온보딩 웰컴 스텝이 렌더된다', async () => {
     render(<App />);
-    expect(await screen.findByText('SentenceFlow')).toBeOnTheScreen();
+    expect(await screen.findByText('Fluen')).toBeOnTheScreen();
     expect(screen.getByText(/듣기 중심 영어/)).toBeOnTheScreen();
   });
 

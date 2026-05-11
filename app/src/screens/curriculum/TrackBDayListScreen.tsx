@@ -1,13 +1,12 @@
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RouteProp } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 
 import type { RootStackParamList } from '../../navigation/types';
-import type { CurriculumDay } from '../../types/domain';
-import { CHAPTERS, TOTAL_DAYS } from '../../types/domain';
-import { CurriculumService } from '../../services/curriculum/CurriculumService';
+import type { ReadingDay } from '../../types/domain';
+import { READING_CHAPTERS, READING_TOTAL_DAYS } from '../../types/domain';
+import { ReadingCurriculumService } from '../../services/curriculum/ReadingCurriculumService';
 import { getSupabaseClient } from '../../lib/supabase';
 import { getContentDatabase } from '../../db';
 import { useProgressStore } from '../../stores';
@@ -17,82 +16,82 @@ type DaySection = {
   title: string;
   subtitle: string;
   description: string;
-  data: CurriculumDay[];
+  data: ReadingDay[];
 };
 
 /**
- * DayListScreen — 30일 커리큘럼 목록.
+ * TrackBDayListScreen — 60일 독해 커리큘럼 목록.
  *
- * 기존 LevelSelectScreen + UnitListScreen을 대체한다.
  * 3개 챕터를 SectionList로 표시하고, 각 Day를 탭하면
- * TrackASessionScreen으로 진입한다.
+ * TrackBSession으로 진입한다. 1일 3지문.
  */
-export default function DayListScreen() {
+export default function TrackBDayListScreen() {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const route = useRoute<RouteProp<RootStackParamList, 'DayList'>>();
-  const filterChapter = route.params?.chapter;
 
-  const [days, setDays] = useState<CurriculumDay[]>([]);
+  const [days, setDays] = useState<ReadingDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const completedUnitIds = useProgressStore((s) => s.completedUnitIds);
+  const completedReadingPassageIds = useProgressStore((s) => s.completedReadingPassageIds);
 
   const loadDays = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const db = await getContentDatabase();
-      const svc = new CurriculumService(db, getSupabaseClient());
-      const data = await svc.listDays(filterChapter);
+      const svc = new ReadingCurriculumService(db, getSupabaseClient());
+      const data = await svc.listDays();
       setDays(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [filterChapter]);
+  }, []);
 
   useEffect(() => {
     void loadDays();
   }, [loadDays]);
 
   const sections: DaySection[] = useMemo(() => {
-    const grouped = new Map<number, CurriculumDay[]>();
+    const grouped = new Map<number, ReadingDay[]>();
     for (const day of days) {
       const list = grouped.get(day.chapter) ?? [];
       list.push(day);
       grouped.set(day.chapter, list);
     }
-    return CHAPTERS.filter((ch) => !filterChapter || ch.number === filterChapter).map((ch) => ({
+    return READING_CHAPTERS.map((ch) => ({
       title: `Chapter ${ch.number}. ${ch.titleKo}`,
       subtitle: ch.subtitleKo,
       description: ch.descriptionKo,
       data: grouped.get(ch.number) ?? [],
     }));
-  }, [days, filterChapter]);
+  }, [days]);
 
   const completedCount = useMemo(() => {
-    return days.filter((d) => d.unitIds.every((id) => completedUnitIds.has(id))).length;
-  }, [days, completedUnitIds]);
+    return days.filter((d) => d.passageIds.every((id) => completedReadingPassageIds.has(id)))
+      .length;
+  }, [days, completedReadingPassageIds]);
 
   const renderDay = useCallback(
-    ({ item }: { item: CurriculumDay }) => {
-      const isCompleted = item.unitIds.every((id) => completedUnitIds.has(id));
+    ({ item }: { item: ReadingDay }) => {
+      const completedPassages = item.passageIds.filter((id) =>
+        completedReadingPassageIds.has(id),
+      ).length;
+      const isCompleted = completedPassages === item.passageIds.length;
       return (
         <Pressable
           onPress={() =>
-            navigation.navigate('TrackASession', {
-              unitId: item.unitIds[0] ?? item.unitId,
-              unitIds: item.unitIds,
-              unitTitle: item.titleKo,
+            navigation.navigate('TrackBSession', {
               dayNumber: item.dayNumber,
+              passageIds: item.passageIds,
+              dayTitle: item.titleKo,
             })
           }
           accessibilityRole="button"
-          accessibilityLabel={`Day ${item.dayNumber} ${item.titleKo} ${isCompleted ? '완료' : ''}`}
+          accessibilityLabel={`Day ${item.dayNumber} ${item.titleKo} ${isCompleted ? '완료' : `${completedPassages}/${item.passageIds.length}`}`}
           style={({ pressed }) => [
             styles.dayCard,
             isCompleted && styles.dayCardCompleted,
@@ -107,17 +106,19 @@ export default function DayListScreen() {
           <View style={styles.dayBody}>
             <Text style={styles.dayTitle}>{item.titleKo}</Text>
             {item.subtitleKo ? (
-              <Text style={styles.dayDescription} numberOfLines={2}>
+              <Text style={styles.dayDescription} numberOfLines={1}>
                 {item.subtitleKo}
               </Text>
             ) : null}
-            {item.isReview ? <Text style={styles.dayMeta}>복습</Text> : null}
+            <Text style={styles.dayMeta}>
+              {completedPassages}/{item.passageIds.length} 지문
+            </Text>
           </View>
           {isCompleted && <Text style={styles.checkMark}>✓</Text>}
         </Pressable>
       );
     },
-    [navigation, styles, completedUnitIds],
+    [navigation, styles, completedReadingPassageIds],
   );
 
   const renderSectionHeader = useCallback(
@@ -142,7 +143,7 @@ export default function DayListScreen() {
   if (error) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>커리큘럼을 불러오지 못했어요.</Text>
+        <Text style={styles.errorText}>독해 커리큘럼을 불러오지 못했어요.</Text>
         <Text style={styles.errorDetail}>{error}</Text>
         <Pressable
           onPress={() => void loadDays()}
@@ -159,17 +160,20 @@ export default function DayListScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
       <View style={styles.progressHeader}>
-        <Text style={styles.progressTitle}>60일 챌린지</Text>
+        <Text style={styles.progressTitle}>독해 60일 챌린지</Text>
         <Text style={styles.progressCount}>
-          {completedCount} / {TOTAL_DAYS}일 완료
+          {completedCount} / {READING_TOTAL_DAYS}일 완료
         </Text>
         <View
           style={styles.progressTrack}
           accessibilityRole="progressbar"
-          accessibilityLabel={`${TOTAL_DAYS}일 중 ${completedCount}일 완료`}
+          accessibilityLabel={`${READING_TOTAL_DAYS}일 중 ${completedCount}일 완료`}
         >
           <View
-            style={[styles.progressFill, { width: `${(completedCount / TOTAL_DAYS) * 100}%` }]}
+            style={[
+              styles.progressFill,
+              { width: `${(completedCount / READING_TOTAL_DAYS) * 100}%` },
+            ]}
           />
         </View>
       </View>
@@ -201,7 +205,7 @@ function makeStyles(theme: Theme) {
       gap: theme.spacing.sm,
     },
     progressTitle: {
-      ...theme.typography.heading,
+      ...theme.typography.headingMd,
       color: theme.colors.text,
     },
     progressCount: {
@@ -291,14 +295,15 @@ function makeStyles(theme: Theme) {
       color: theme.colors.textMuted,
     },
     checkMark: {
-      ...theme.typography.heading,
+      ...theme.typography.headingMd,
       color: theme.colors.primary,
       fontSize: 18,
     },
     errorText: {
-      ...theme.typography.button,
+      ...theme.typography.body,
       color: theme.colors.text,
       textAlign: 'center',
+      fontWeight: '500',
     },
     errorDetail: {
       ...theme.typography.caption,

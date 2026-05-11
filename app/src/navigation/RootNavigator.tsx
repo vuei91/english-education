@@ -4,6 +4,7 @@ import RecentWordsScreen from '../screens/RecentWordsScreen';
 import RewardedConfirmModal from '../screens/RewardedConfirmModal';
 import DayListScreen from '../screens/curriculum/DayListScreen';
 import TrackASessionScreen from '../screens/TrackASessionScreen';
+import TrackBSessionScreen from '../screens/TrackBSessionScreen';
 import VocabHelperSheet from '../screens/VocabHelperSheet';
 import RootTabs from './RootTabs';
 import type { RootStackParamList } from './types';
@@ -40,6 +41,13 @@ export default function RootNavigator() {
         component={TrackASessionScreen}
         options={({ route }) => ({
           title: route.params.dayNumber ? `Day ${route.params.dayNumber}` : route.params.unitTitle,
+        })}
+      />
+      <Stack.Screen
+        name="TrackBSession"
+        component={TrackBSessionScreen}
+        options={({ route }) => ({
+          title: `Day ${route.params.dayNumber}`,
         })}
       />
       <Stack.Group screenOptions={{ presentation: 'modal' }}>

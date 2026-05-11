@@ -3,3 +3,8 @@ export {
   CurriculumUnavailableError,
   CurriculumIntegrityError,
 } from './CurriculumService';
+
+export {
+  ReadingCurriculumService,
+  ReadingCurriculumUnavailableError,
+} from './ReadingCurriculumService';

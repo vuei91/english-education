@@ -205,3 +205,64 @@ export const CHAPTERS: readonly Chapter[] = [
 
 /** Total days in the curriculum. */
 export const TOTAL_DAYS = 60;
+
+// ---------------------------------------------------------------------------
+// Track B 60-day reading curriculum
+// ---------------------------------------------------------------------------
+
+/** Static chapter metadata for Track B reading curriculum. */
+export type ReadingChapter = {
+  number: 1 | 2 | 3;
+  titleKo: string;
+  subtitleKo: string;
+  descriptionKo: string;
+  dayRange: [number, number];
+};
+
+/** The three chapters of the 60-day reading curriculum. */
+export const READING_CHAPTERS: readonly ReadingChapter[] = [
+  {
+    number: 1,
+    titleKo: '기초 독해',
+    subtitleKo: '짧은 지문 읽기',
+    descriptionKo:
+      '3~5문장 길이의 짧은 지문을 청킹으로 끊어 읽고, 핵심 내용을 파악하는 연습을 합니다. 매일 3개 지문을 통해 독해 기초 체력을 기릅니다.',
+    dayRange: [1, 20],
+  },
+  {
+    number: 2,
+    titleKo: '중급 독해',
+    subtitleKo: '문단 단위 읽기',
+    descriptionKo:
+      '5~8문장 길이의 문단을 읽고 구조를 분석합니다. 접속사와 지시어를 따라가며 글의 흐름을 이해하고, 독해 퀴즈로 이해도를 확인합니다.',
+    dayRange: [21, 42],
+  },
+  {
+    number: 3,
+    titleKo: '심화 독해',
+    subtitleKo: '실전 지문 읽기',
+    descriptionKo:
+      '뉴스, 에세이, 설명문 등 실전 지문을 읽습니다. 긴 문장을 청킹으로 분해하고 섀도잉으로 체화한 뒤, 주관식 퀴즈로 깊이 있는 이해를 확인합니다.',
+    dayRange: [43, 60],
+  },
+] as const;
+
+/** Total days in the reading curriculum. */
+export const READING_TOTAL_DAYS = 60;
+
+/** Passages per day in the reading curriculum. */
+export const READING_PASSAGES_PER_DAY = 3;
+
+/**
+ * A single day in the Track B reading curriculum.
+ * Each day contains 3 passages (sentences) for the user to work through.
+ */
+export type ReadingDay = {
+  id: string;
+  dayNumber: number;
+  chapter: 1 | 2 | 3;
+  titleKo: string;
+  subtitleKo: string | null;
+  /** Ordered sentence IDs for this day's 3 passages. */
+  passageIds: string[];
+};

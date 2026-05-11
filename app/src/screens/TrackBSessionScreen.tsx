@@ -1,5 +1,6 @@
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RouteProp } from '@react-navigation/native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,7 +23,7 @@ import {
   type Sentence,
   type StructureSummary,
 } from '../services/content';
-import { useSessionStore, useUserStore, useVocabStore, useProgressStore } from '../stores';
+import { useSessionStore, useProgressStore } from '../stores';
 import { useTheme, type Theme } from '../theme';
 import type { PlaybackSpeed, TrackBStep } from '../types/domain';
 import ChunkingView from './trackB/ChunkingView';
@@ -31,11 +32,12 @@ import ShadowingPlayer from './trackB/ShadowingPlayer';
 import StructureSummaryView from './trackB/StructureSummaryView';
 
 /**
- * Track B session — 4-step flow per Req 3.2:
- *   chunking → listen → shadowing → summary
+ * Track B session — curriculum-based 4-step flow per passage:
+ *   listen → chunking → summary → quiz
  *
- * Each step has a skip button (Req 3.3). We never force progression.
- * Non-Goal reminder (Req 5.5): no recording, no pronunciation scoring.
+ * Receives `passageIds` (3 per day) from TrackBDayListScreen.
+ * Each passage goes through the 4-step flow, then advances to the next.
+ * Non-Goal reminder: no recording, no pronunciation scoring.
  */
 
 const STEP_LABELS: Record<TrackBStep, string> = {
@@ -51,18 +53,18 @@ const STEP_ORDER: TrackBStep[] = ['listen', 'chunking', 'summary', 'quiz'];
 export default function TrackBSessionScreen() {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, 'TrackBSession'>>();
+  const { passageIds, dayNumber } = route.params;
 
-  const cefrLevel = useUserStore((s) => s.cefrLevel);
   const startSession = useSessionStore((s) => s.startSession);
   const endSession = useSessionStore((s) => s.endSession);
   const setStep = useSessionStore((s) => s.setStep);
   const setChunkIndex = useSessionStore((s) => s.setChunkIndex);
-  const currentStep = useSessionStore((s) => s.currentStep) ?? 'chunking';
+  const currentStep = useSessionStore((s) => s.currentStep) ?? 'listen';
   const currentChunkIndex = useSessionStore((s) => s.currentChunkIndex);
-  const recentTaps = useVocabStore((s) => s.recentTaps);
   const completeSentence = useProgressStore((s) => s.completeSentence);
+  const completeReadingPassage = useProgressStore((s) => s.completeReadingPassage);
 
   const [sentence, setSentence] = useState<Sentence | null>(null);
   const [chunks, setChunks] = useState<Chunk[]>([]);
@@ -71,9 +73,14 @@ export default function TrackBSessionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
   const [chunkPauseEnabled, setChunkPauseEnabled] = useState(false);
-  const [cachedQuestion, setCachedQuestion] = useState<{ type: string; questionKo: string } | null>(null);
+  const [cachedQuestion, setCachedQuestion] = useState<{
+    type: string;
+    questionKo: string;
+  } | null>(null);
 
-  const shownIdsRef = useRef<string[]>([]);
+  /** Current passage index within the day (0, 1, 2). */
+  const [passageIndex, setPassageIndex] = useState(0);
+
   const serviceRef = useRef<ContentService | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -84,60 +91,61 @@ export default function TrackBSessionScreen() {
     return serviceRef.current;
   }, []);
 
-  const loadNext = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const svc = await getService();
-      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
-      const hotWords = Array.from(
-        new Set(recentTaps.filter((t) => t.tappedAt >= cutoff).map((t) => t.word)),
-      ).slice(0, 20);
-      const next = await svc.getNextSentence('B', 'C1', {
-        hotWords,
-        excludeIds: shownIdsRef.current,
-      });
-      setSentence(next);
-      if (!next) {
-        setChunks([]);
-        setSummary(null);
+  const loadPassage = useCallback(
+    async (index: number) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const sentenceId = passageIds[index];
+        if (!sentenceId) {
+          // All passages done — go back to day list
+          navigation.goBack();
+          return;
+        }
+        const svc = await getService();
+        const next = await svc.getSentenceById(sentenceId);
+        setSentence(next);
+        if (!next) {
+          setChunks([]);
+          setSummary(null);
+          setCachedQuestion(null);
+          return;
+        }
+        startSession('B', next.id);
+        setStep('listen');
+        setChunkIndex(0);
         setCachedQuestion(null);
-        return;
-      }
-      shownIdsRef.current = [...shownIdsRef.current, next.id].slice(-50);
-      startSession('B', next.id);
-      setStep('listen');
-      setChunkIndex(0);
-      setCachedQuestion(null);
 
-      const [loadedChunks, loadedSummary] = await Promise.all([
-        svc.getChunks(next.id),
-        svc.getSentenceSummary(next.id),
-      ]);
-      setChunks(
-        loadedChunks.length > 0
-          ? loadedChunks
-          : [
-              {
-                id: `${next.id}:whole`,
-                sentenceId: next.id,
-                orderIndex: 0,
-                text: next.textEn,
-                depth: 0,
-                role: null,
-              },
-            ],
-      );
-      setSummary(loadedSummary);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [cefrLevel, getService, recentTaps, setChunkIndex, setStep, startSession]);
+        const [loadedChunks, loadedSummary] = await Promise.all([
+          svc.getChunks(next.id),
+          svc.getSentenceSummary(next.id),
+        ]);
+        setChunks(
+          loadedChunks.length > 0
+            ? loadedChunks
+            : [
+                {
+                  id: `${next.id}:whole`,
+                  sentenceId: next.id,
+                  orderIndex: 0,
+                  text: next.textEn,
+                  depth: 0,
+                  role: null,
+                },
+              ],
+        );
+        setSummary(loadedSummary);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [getService, passageIds, navigation, setChunkIndex, setStep, startSession],
+  );
 
   useEffect(() => {
-    void loadNext();
+    void loadPassage(0);
     return () => {
       void audioPlayer.stop();
       endSession();
@@ -189,11 +197,32 @@ export default function TrackBSessionScreen() {
       const next = STEP_ORDER[idx + 1];
       if (next) setStep(next);
     } else {
-      // Last step → Finish. Count this sentence as completed (Req 13.3).
+      // Last step of this passage → mark complete, advance to next passage
       completeSentence();
-      void loadNext();
+      const currentPassageId = passageIds[passageIndex];
+      if (currentPassageId) {
+        completeReadingPassage(currentPassageId);
+      }
+      const nextIndex = passageIndex + 1;
+      if (nextIndex < passageIds.length) {
+        setPassageIndex(nextIndex);
+        void loadPassage(nextIndex);
+        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      } else {
+        // All 3 passages done
+        navigation.goBack();
+      }
     }
-  }, [completeSentence, currentStep, loadNext, setStep]);
+  }, [
+    completeSentence,
+    completeReadingPassage,
+    currentStep,
+    loadPassage,
+    navigation,
+    passageIds,
+    passageIndex,
+    setStep,
+  ]);
 
   const goToPrevStep = useCallback(() => {
     const idx = STEP_ORDER.indexOf(currentStep);
@@ -215,6 +244,31 @@ export default function TrackBSessionScreen() {
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
       >
+        {/* Passage progress indicator */}
+        <View style={styles.passageProgress}>
+          <Text style={styles.passageProgressText}>
+            지문 {passageIndex + 1} / {passageIds.length}
+          </Text>
+          <View style={styles.passageDots}>
+            {passageIds.map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.passageDot,
+                  {
+                    backgroundColor:
+                      i < passageIndex
+                        ? theme.colors.success
+                        : i === passageIndex
+                          ? theme.colors.primary
+                          : theme.colors.border,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator color={theme.colors.primary} />
@@ -226,9 +280,7 @@ export default function TrackBSessionScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="다시 시도"
-              onPress={() => {
-                void loadNext();
-              }}
+              onPress={() => void loadPassage(passageIndex)}
               style={styles.retry}
             >
               <Text style={styles.retryText}>다시 시도</Text>
@@ -236,10 +288,8 @@ export default function TrackBSessionScreen() {
           </View>
         ) : !sentence ? (
           <View style={styles.center}>
-            <Text style={styles.emptyTitle}>아직 긴 지문이 없어요.</Text>
-            <Text style={styles.emptyDetail}>
-              콘텐츠가 충분히 쌓인 뒤 다시 와주세요.
-            </Text>
+            <Text style={styles.emptyTitle}>지문을 찾을 수 없어요.</Text>
+            <Text style={styles.emptyDetail}>콘텐츠가 준비되면 다시 시도해 주세요.</Text>
           </View>
         ) : (
           <>
@@ -273,13 +323,8 @@ export default function TrackBSessionScreen() {
                     },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.listenButtonLabel,
-                      { color: theme.colors.primaryOn },
-                    ]}
-                  >
-                    🔊  전체 듣기
+                  <Text style={[styles.listenButtonLabel, { color: theme.colors.primaryOn }]}>
+                    🔊 전체 듣기
                   </Text>
                 </Pressable>
               </View>
@@ -296,9 +341,7 @@ export default function TrackBSessionScreen() {
               />
             ) : null}
 
-            {currentStep === 'summary' ? (
-              <StructureSummaryView summary={summary} />
-            ) : null}
+            {currentStep === 'summary' ? <StructureSummaryView summary={summary} /> : null}
 
             {currentStep === 'quiz' && sentence ? (
               <ReadingQuizView
@@ -310,59 +353,51 @@ export default function TrackBSessionScreen() {
                 onQuestionGenerated={setCachedQuestion}
               />
             ) : null}
-
-            {currentStep !== 'quiz' ? (
-            <View style={styles.navRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="이전 단계"
-                disabled={STEP_ORDER.indexOf(currentStep) === 0}
-                onPress={goToPrevStep}
-                style={({ pressed }) => [
-                  styles.navButton,
-                  {
-                    borderColor: theme.colors.border,
-                    opacity:
-                      STEP_ORDER.indexOf(currentStep) === 0
-                        ? 0.4
-                        : pressed
-                          ? 0.85
-                          : 1,
-                  },
-                ]}
-              >
-                <Text style={[styles.navLabel, { color: theme.colors.text }]}>
-                  ← 이전
-                </Text>
-              </Pressable>
-
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  STEP_ORDER.indexOf(currentStep) === STEP_ORDER.length - 1
-                    ? '문장 마치기'
-                    : '다음 단계'
-                }
-                onPress={goToNextStep}
-                style={({ pressed }) => [
-                  styles.navPrimary,
-                  {
-                    backgroundColor: theme.colors.primary,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                ]}
-              >
-                <Text style={[styles.navLabel, { color: theme.colors.primaryOn }]}>
-                  {STEP_ORDER.indexOf(currentStep) === STEP_ORDER.length - 1
-                    ? '완료'
-                    : '다음 →'}
-                </Text>
-              </Pressable>
-            </View>
-            ) : null}
           </>
         )}
       </ScrollView>
+
+      {/* 하단 고정 네비게이션 버튼 (quiz 단계에서는 ReadingQuizView 내부 버튼 사용) */}
+      {!loading && !error && sentence && currentStep !== 'quiz' ? (
+        <View style={styles.bottomNav}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="이전 단계"
+            disabled={STEP_ORDER.indexOf(currentStep) === 0}
+            onPress={goToPrevStep}
+            style={({ pressed }) => [
+              styles.navButton,
+              {
+                borderColor: theme.colors.border,
+                opacity: STEP_ORDER.indexOf(currentStep) === 0 ? 0.4 : pressed ? 0.85 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.navLabel, { color: theme.colors.text }]}>← 이전</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              STEP_ORDER.indexOf(currentStep) === STEP_ORDER.length - 1
+                ? '지문 마치기'
+                : '다음 단계'
+            }
+            onPress={goToNextStep}
+            style={({ pressed }) => [
+              styles.navPrimary,
+              {
+                backgroundColor: theme.colors.primary,
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.navLabel, { color: theme.colors.primaryOn }]}>
+              {STEP_ORDER.indexOf(currentStep) === STEP_ORDER.length - 1 ? '완료' : '다음 →'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -383,8 +418,7 @@ function StepIndicator({
     <View style={styles.stepperRow}>
       {steps.map((step, idx) => {
         const activeIdx = steps.indexOf(active);
-        const state =
-          idx < activeIdx ? 'done' : idx === activeIdx ? 'active' : 'upcoming';
+        const state = idx < activeIdx ? 'done' : idx === activeIdx ? 'active' : 'upcoming';
         return (
           <Pressable
             key={step}
@@ -411,8 +445,7 @@ function StepIndicator({
               style={[
                 styles.stepText,
                 {
-                  color:
-                    state === 'active' ? theme.colors.primary : theme.colors.textMuted,
+                  color: state === 'active' ? theme.colors.primary : theme.colors.textMuted,
                   fontWeight: state === 'active' ? '700' : '500',
                 },
               ]}
@@ -437,7 +470,25 @@ function makeStyles(theme: Theme) {
       padding: theme.spacing.xl,
       gap: theme.spacing.sm,
     },
-    errorTitle: { ...theme.typography.button, color: theme.colors.text },
+    passageProgress: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    passageProgressText: {
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
+    },
+    passageDots: {
+      flexDirection: 'row',
+      gap: theme.spacing.xs,
+    },
+    passageDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+    },
+    errorTitle: { ...theme.typography.body, color: theme.colors.text, fontWeight: '500' },
     errorDetail: {
       ...theme.typography.caption,
       color: theme.colors.textMuted,
@@ -452,9 +503,10 @@ function makeStyles(theme: Theme) {
     },
     retryText: { ...theme.typography.button, color: theme.colors.primaryOn },
     emptyTitle: {
-      ...theme.typography.button,
+      ...theme.typography.body,
       color: theme.colors.text,
       textAlign: 'center',
+      fontWeight: '500',
     },
     emptyDetail: {
       ...theme.typography.caption,
@@ -479,11 +531,6 @@ function makeStyles(theme: Theme) {
       borderRadius: theme.radius.md,
     },
     listenButtonLabel: { ...theme.typography.button },
-    navRow: {
-      flexDirection: 'row',
-      gap: theme.spacing.sm,
-      marginTop: theme.spacing.md,
-    },
     navButton: {
       flex: 1,
       paddingVertical: theme.spacing.md,
@@ -498,5 +545,14 @@ function makeStyles(theme: Theme) {
       borderRadius: theme.radius.md,
     },
     navLabel: { ...theme.typography.button },
+    bottomNav: {
+      flexDirection: 'row',
+      gap: theme.spacing.sm,
+      padding: theme.spacing.lg,
+      paddingBottom: theme.spacing.xl,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.border,
+      backgroundColor: theme.colors.bg,
+    },
   });
 }

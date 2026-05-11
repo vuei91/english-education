@@ -42,9 +42,7 @@ type CurriculumProgressPayload = {
   completedStepIds: readonly string[];
 };
 
-type CurriculumProgressSyncFn = (
-  payload: CurriculumProgressPayload,
-) => void | Promise<void>;
+type CurriculumProgressSyncFn = (payload: CurriculumProgressPayload) => void | Promise<void>;
 
 let boundSync: CurriculumProgressSyncFn | null = null;
 
@@ -54,9 +52,7 @@ let boundSync: CurriculumProgressSyncFn | null = null;
  * `null` to unbind (useful in tests). No-ops when called twice with the
  * same reference.
  */
-export function bindCurriculumProgressSync(
-  fn: CurriculumProgressSyncFn | null,
-): void {
+export function bindCurriculumProgressSync(fn: CurriculumProgressSyncFn | null): void {
   boundSync = fn;
 }
 
@@ -131,6 +127,11 @@ type PersistedShape = {
    * resumes from that position. Cleared for a day when it's fully completed.
    */
   dayProgress: Record<number, number>;
+  /**
+   * Completed reading passage IDs (Track B). Stored as `string[]` on disk,
+   * converted to `Set<string>` in memory for O(1) lookups.
+   */
+  completedReadingPassageIds: string[];
 };
 
 /**
@@ -141,11 +142,12 @@ type PersistedShape = {
  */
 export type ProgressState = Omit<
   PersistedShape,
-  'completedUnitIds' | 'completedStepIds'
+  'completedUnitIds' | 'completedStepIds' | 'completedReadingPassageIds'
 > & {
   hydrated: boolean;
   completedUnitIds: Set<string>;
   completedStepIds: Set<string>;
+  completedReadingPassageIds: Set<string>;
 };
 
 export type ProgressActions = {
@@ -203,6 +205,8 @@ export type ProgressActions = {
   setDayProgress: (dayNumber: number, sentenceIndex: number) => void;
   /** Clear a Day's progress (called when Day is fully completed or reset). */
   clearDayProgress: (dayNumber: number) => void;
+  /** Mark a reading passage (Track B) as completed. Idempotent. */
+  completeReadingPassage: (passageId: string) => void;
   hydrate: () => Promise<void>;
   /** Test-only: wipe everything (both memory + disk). */
   reset: () => void;
@@ -223,12 +227,14 @@ const initialPersisted: PersistedShape = {
   completedUnitIds: [],
   completedStepIds: [],
   dayProgress: {},
+  completedReadingPassageIds: [],
 };
 
 const initialState: ProgressState = {
   ...initialPersisted,
   completedUnitIds: new Set<string>(),
   completedStepIds: new Set<string>(),
+  completedReadingPassageIds: new Set<string>(),
   hydrated: false,
 };
 
@@ -277,218 +283,226 @@ function snapshot(state: ProgressState): PersistedShape {
     // Convert Sets → arrays for JSON. `hydrate` does the inverse.
     completedUnitIds: Array.from(state.completedUnitIds),
     completedStepIds: Array.from(state.completedStepIds),
+    completedReadingPassageIds: Array.from(state.completedReadingPassageIds),
     dayProgress: state.dayProgress,
   };
 }
 
-export const useProgressStore = create<ProgressState & ProgressActions>(
-  (set, get) => ({
-    ...initialState,
+export const useProgressStore = create<ProgressState & ProgressActions>((set, get) => ({
+  ...initialState,
 
-    setDailyGoal: (dailyGoal) => {
-      if (!DAILY_GOAL_OPTIONS.includes(dailyGoal)) return;
-      set({ dailyGoal });
-      void writePersisted(snapshot(get()));
-    },
+  setDailyGoal: (dailyGoal) => {
+    if (!DAILY_GOAL_OPTIONS.includes(dailyGoal)) return;
+    set({ dailyGoal });
+    void writePersisted(snapshot(get()));
+  },
 
-    completeSentence: (today = todayIso()) => {
-      // First, make sure the calendar state is fresh for *this* date.
-      get().reconcileForToday(today);
-      const before = get();
-      const nextCount = before.sentencesCompletedToday + 1;
-      const hitNow = !before.goalHitToday && nextCount >= before.dailyGoal;
+  completeSentence: (today = todayIso()) => {
+    // First, make sure the calendar state is fresh for *this* date.
+    get().reconcileForToday(today);
+    const before = get();
+    const nextCount = before.sentencesCompletedToday + 1;
+    const hitNow = !before.goalHitToday && nextCount >= before.dailyGoal;
 
-      let nextStreak = before.currentStreak;
-      let nextBest = before.bestStreak;
-      let nextStreakDate = before.lastStreakDate;
+    let nextStreak = before.currentStreak;
+    let nextBest = before.bestStreak;
+    let nextStreakDate = before.lastStreakDate;
 
-      if (hitNow) {
-        const gap =
-          before.lastStreakDate === null
-            ? Number.POSITIVE_INFINITY
-            : daysBetween(before.lastStreakDate, today);
-        nextStreak = gap === 1 ? before.currentStreak + 1 : 1;
-        nextBest = Math.max(before.bestStreak, nextStreak);
-        nextStreakDate = today;
-      }
+    if (hitNow) {
+      const gap =
+        before.lastStreakDate === null
+          ? Number.POSITIVE_INFINITY
+          : daysBetween(before.lastStreakDate, today);
+      nextStreak = gap === 1 ? before.currentStreak + 1 : 1;
+      nextBest = Math.max(before.bestStreak, nextStreak);
+      nextStreakDate = today;
+    }
 
-      set({
-        sentencesCompletedToday: nextCount,
-        totalSentencesCompleted: before.totalSentencesCompleted + 1,
-        lastActiveDate: today,
-        goalHitToday: before.goalHitToday || hitNow,
-        currentStreak: nextStreak,
-        bestStreak: nextBest,
-        lastStreakDate: nextStreakDate,
-      });
-      void writePersisted(snapshot(get()));
-      return hitNow;
-    },
+    set({
+      sentencesCompletedToday: nextCount,
+      totalSentencesCompleted: before.totalSentencesCompleted + 1,
+      lastActiveDate: today,
+      goalHitToday: before.goalHitToday || hitNow,
+      currentStreak: nextStreak,
+      bestStreak: nextBest,
+      lastStreakDate: nextStreakDate,
+    });
+    void writePersisted(snapshot(get()));
+    return hitNow;
+  },
 
-    resetStreak: () => {
-      set({ currentStreak: 0 });
-      void writePersisted(snapshot(get()));
-    },
+  resetStreak: () => {
+    set({ currentStreak: 0 });
+    void writePersisted(snapshot(get()));
+  },
 
-    loseHeart: () => {
-      set((state) => ({ hearts: Math.max(0, state.hearts - 1) }));
-      void writePersisted(snapshot(get()));
-    },
+  loseHeart: () => {
+    set((state) => ({ hearts: Math.max(0, state.hearts - 1) }));
+    void writePersisted(snapshot(get()));
+  },
 
-    refillHearts: () => {
-      set({ hearts: MAX_HEARTS });
-      void writePersisted(snapshot(get()));
-    },
+  refillHearts: () => {
+    set({ hearts: MAX_HEARTS });
+    void writePersisted(snapshot(get()));
+  },
 
-    reconcileForToday: (today = todayIso()) => {
-      const s = get();
-      if (s.lastActiveDate === today) return;
+  reconcileForToday: (today = todayIso()) => {
+    const s = get();
+    if (s.lastActiveDate === today) return;
 
-      // Day rolled over. Reset daily counter + goal flag.
-      let nextStreak = s.currentStreak;
-      if (s.lastStreakDate !== null) {
-        const gap = daysBetween(s.lastStreakDate, today);
-        if (gap > 1) nextStreak = 0;
-      }
+    // Day rolled over. Reset daily counter + goal flag.
+    let nextStreak = s.currentStreak;
+    if (s.lastStreakDate !== null) {
+      const gap = daysBetween(s.lastStreakDate, today);
+      if (gap > 1) nextStreak = 0;
+    }
 
-      set({
-        sentencesCompletedToday: 0,
-        goalHitToday: false,
-        lastActiveDate: today,
-        currentStreak: nextStreak,
-      });
-      void writePersisted(snapshot(get()));
-    },
+    set({
+      sentencesCompletedToday: 0,
+      goalHitToday: false,
+      lastActiveDate: today,
+      currentStreak: nextStreak,
+    });
+    void writePersisted(snapshot(get()));
+  },
 
-    recordDrillCompletion: (originSentenceId, today = todayIso()) => {
-      const before = get();
-      const prevCount = before.drillCompletions[originSentenceId] ?? 0;
-      const nextCount = prevCount + 1;
-      const crossed =
-        prevCount < DRILL_COMPLETION_THRESHOLD &&
-        nextCount >= DRILL_COMPLETION_THRESHOLD;
+  recordDrillCompletion: (originSentenceId, today = todayIso()) => {
+    const before = get();
+    const prevCount = before.drillCompletions[originSentenceId] ?? 0;
+    const nextCount = prevCount + 1;
+    const crossed =
+      prevCount < DRILL_COMPLETION_THRESHOLD && nextCount >= DRILL_COMPLETION_THRESHOLD;
 
-      // Build new maps immutably so downstream selectors see a fresh
-      // reference. Preserve the existing badge entry when we've
-      // already granted it — re-granting would clobber the original
-      // `earnedAt` and Req 2.7 only cares about the *first* crossing.
-      const nextDrillCompletions: DrillCompletionMap = {
-        ...before.drillCompletions,
-        [originSentenceId]: nextCount,
-      };
-      const nextPatternBadges: EarnedBadges = crossed
-        ? {
-            ...before.patternBadges,
-            [originSentenceId]: { earnedAt: today },
-          }
-        : before.patternBadges;
+    // Build new maps immutably so downstream selectors see a fresh
+    // reference. Preserve the existing badge entry when we've
+    // already granted it — re-granting would clobber the original
+    // `earnedAt` and Req 2.7 only cares about the *first* crossing.
+    const nextDrillCompletions: DrillCompletionMap = {
+      ...before.drillCompletions,
+      [originSentenceId]: nextCount,
+    };
+    const nextPatternBadges: EarnedBadges = crossed
+      ? {
+          ...before.patternBadges,
+          [originSentenceId]: { earnedAt: today },
+        }
+      : before.patternBadges;
 
-      set({
-        drillCompletions: nextDrillCompletions,
-        patternBadges: nextPatternBadges,
-      });
-      void writePersisted(snapshot(get()));
-      return crossed;
-    },
+    set({
+      drillCompletions: nextDrillCompletions,
+      patternBadges: nextPatternBadges,
+    });
+    void writePersisted(snapshot(get()));
+    return crossed;
+  },
 
-    hasPatternBadge: (originSentenceId) => {
-      return get().patternBadges[originSentenceId] !== undefined;
-    },
+  hasPatternBadge: (originSentenceId) => {
+    return get().patternBadges[originSentenceId] !== undefined;
+  },
 
-    markStepCompleted: (unitId, stepId, allStepIdsOfUnit) => {
-      const before = get();
+  markStepCompleted: (unitId, stepId, allStepIdsOfUnit) => {
+    const before = get();
 
-      // Idempotent: if the step is already completed, don't re-run the
-      // unit-completion detector. Re-granting a unit completion would
-      // double-celebrate, and we'd also re-queue a no-op sync row.
-      if (before.completedStepIds.has(stepId)) {
-        return { unitCompleted: false };
-      }
+    // Idempotent: if the step is already completed, don't re-run the
+    // unit-completion detector. Re-granting a unit completion would
+    // double-celebrate, and we'd also re-queue a no-op sync row.
+    if (before.completedStepIds.has(stepId)) {
+      return { unitCompleted: false };
+    }
 
-      const nextStepIds = new Set(before.completedStepIds);
-      nextStepIds.add(stepId);
+    const nextStepIds = new Set(before.completedStepIds);
+    nextStepIds.add(stepId);
 
-      // Unit is complete only the first time *every* declared step is
-      // in the set. The caller declares the full step-id list so we
-      // don't have to reach into the curriculum catalog from inside
-      // the store (keeps the dependency graph one-way: curriculum →
-      // progress, never the other direction).
-      const unitCompleted =
-        !before.completedUnitIds.has(unitId) &&
-        allStepIdsOfUnit.every((id) => nextStepIds.has(id));
+    // Unit is complete only the first time *every* declared step is
+    // in the set. The caller declares the full step-id list so we
+    // don't have to reach into the curriculum catalog from inside
+    // the store (keeps the dependency graph one-way: curriculum →
+    // progress, never the other direction).
+    const unitCompleted =
+      !before.completedUnitIds.has(unitId) && allStepIdsOfUnit.every((id) => nextStepIds.has(id));
 
-      const nextUnitIds = unitCompleted
-        ? new Set(before.completedUnitIds).add(unitId)
-        : before.completedUnitIds;
+    const nextUnitIds = unitCompleted
+      ? new Set(before.completedUnitIds).add(unitId)
+      : before.completedUnitIds;
 
-      set({
-        completedStepIds: nextStepIds,
-        completedUnitIds: nextUnitIds,
-      });
-      // AsyncStorage write is best-effort; next launch will re-read the
-      // previous good snapshot if this flight fails (same policy as the
-      // other actions in this store).
-      void writePersisted(snapshot(get()));
+    set({
+      completedStepIds: nextStepIds,
+      completedUnitIds: nextUnitIds,
+    });
+    // AsyncStorage write is best-effort; next launch will re-read the
+    // previous good snapshot if this flight fails (same policy as the
+    // other actions in this store).
+    void writePersisted(snapshot(get()));
 
-      // Signature is declared on the SyncService side by
-      // curriculum-foundation Task 11.1. We call through the binding
-      // module so this store never imports SyncService directly (avoids
-      // the circular `services → stores → services` dependency). The
-      // binding is a no-op until Task 11 wires a concrete service in.
-      void queueCurriculumProgressViaBinding({
-        completedUnitIds: Array.from(nextUnitIds),
-        completedStepIds: Array.from(nextStepIds),
-      });
+    // Signature is declared on the SyncService side by
+    // curriculum-foundation Task 11.1. We call through the binding
+    // module so this store never imports SyncService directly (avoids
+    // the circular `services → stores → services` dependency). The
+    // binding is a no-op until Task 11 wires a concrete service in.
+    void queueCurriculumProgressViaBinding({
+      completedUnitIds: Array.from(nextUnitIds),
+      completedStepIds: Array.from(nextStepIds),
+    });
 
-      return { unitCompleted };
-    },
+    return { unitCompleted };
+  },
 
-    setDayProgress: (dayNumber, sentenceIndex) => {
-      const before = get();
-      set({ dayProgress: { ...before.dayProgress, [dayNumber]: sentenceIndex } });
-      void writePersisted(snapshot(get()));
-    },
+  setDayProgress: (dayNumber, sentenceIndex) => {
+    const before = get();
+    set({ dayProgress: { ...before.dayProgress, [dayNumber]: sentenceIndex } });
+    void writePersisted(snapshot(get()));
+  },
 
-    clearDayProgress: (dayNumber) => {
-      const before = get();
-      const next = { ...before.dayProgress };
-      delete next[dayNumber];
-      set({ dayProgress: next });
-      void writePersisted(snapshot(get()));
-    },
+  clearDayProgress: (dayNumber) => {
+    const before = get();
+    const next = { ...before.dayProgress };
+    delete next[dayNumber];
+    set({ dayProgress: next });
+    void writePersisted(snapshot(get()));
+  },
 
-    hydrate: async () => {
-      const persisted = await readPersisted();
-      const merged: PersistedShape = {
-        ...initialPersisted,
-        ...persisted,
-      };
-      set({
-        ...merged,
-        // Re-hydrate Set<string> from the persisted `string[]` shape
-        // (design D3). Defensive fallback to `[]` handles older payloads
-        // written before curriculum-foundation rolled out.
-        completedUnitIds: new Set(merged.completedUnitIds ?? []),
-        completedStepIds: new Set(merged.completedStepIds ?? []),
-        hydrated: true,
-      });
-      // After hydrating, run a reconcile pass so the UI never shows stale
-      // "yesterday" counters on first paint.
-      get().reconcileForToday();
-    },
+  completeReadingPassage: (passageId) => {
+    const before = get();
+    if (before.completedReadingPassageIds.has(passageId)) return;
+    const next = new Set(before.completedReadingPassageIds);
+    next.add(passageId);
+    set({ completedReadingPassageIds: next });
+    void writePersisted(snapshot(get()));
+  },
 
-    reset: () => {
-      // Fresh Sets on every reset — callers that stash the old reference
-      // should not observe mutations via a stale pointer.
-      set({
-        ...initialState,
-        completedUnitIds: new Set<string>(),
-        completedStepIds: new Set<string>(),
-      });
-      void AsyncStorage.removeItem(STORAGE_KEY);
-    },
-  }),
-);
+  hydrate: async () => {
+    const persisted = await readPersisted();
+    const merged: PersistedShape = {
+      ...initialPersisted,
+      ...persisted,
+    };
+    set({
+      ...merged,
+      // Re-hydrate Set<string> from the persisted `string[]` shape
+      // (design D3). Defensive fallback to `[]` handles older payloads
+      // written before curriculum-foundation rolled out.
+      completedUnitIds: new Set(merged.completedUnitIds ?? []),
+      completedStepIds: new Set(merged.completedStepIds ?? []),
+      completedReadingPassageIds: new Set(merged.completedReadingPassageIds ?? []),
+      hydrated: true,
+    });
+    // After hydrating, run a reconcile pass so the UI never shows stale
+    // "yesterday" counters on first paint.
+    get().reconcileForToday();
+  },
+
+  reset: () => {
+    // Fresh Sets on every reset — callers that stash the old reference
+    // should not observe mutations via a stale pointer.
+    set({
+      ...initialState,
+      completedUnitIds: new Set<string>(),
+      completedStepIds: new Set<string>(),
+      completedReadingPassageIds: new Set<string>(),
+    });
+    void AsyncStorage.removeItem(STORAGE_KEY);
+  },
+}));
 
 /**
  * Hook: hydrates the store once on mount and runs a reconcile pass every

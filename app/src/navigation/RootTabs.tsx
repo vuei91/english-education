@@ -4,7 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import DashboardScreen from '../screens/DashboardScreen';
 import MeScreen from '../screens/MeScreen';
 import DayListScreen from '../screens/curriculum/DayListScreen';
-import TrackBSessionScreen from '../screens/TrackBSessionScreen';
+import TrackBDayListScreen from '../screens/curriculum/TrackBDayListScreen';
 import type { RootTabsParamList } from './types';
 
 const Tab = createBottomTabNavigator<RootTabsParamList>();
@@ -46,7 +46,7 @@ export default function RootTabs() {
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: '홈' }} />
       <Tab.Screen name="TrackA" component={DayListScreen} options={{ title: '회화' }} />
-      <Tab.Screen name="TrackB" component={TrackBSessionScreen} options={{ title: '독해' }} />
+      <Tab.Screen name="TrackB" component={TrackBDayListScreen} options={{ title: '독해' }} />
       <Tab.Screen name="Me" component={MeScreen} options={{ title: '내 정보' }} />
     </Tab.Navigator>
   );

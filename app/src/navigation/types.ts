@@ -16,6 +16,8 @@ export type RootStackParamList = {
   DayList: { chapter?: 1 | 2 | 3 };
   /** Track A session. `dayNumber` links back to the 60-day curriculum. */
   TrackASession: { unitId: string; unitIds?: string[]; unitTitle: string; dayNumber?: number };
+  /** Track B session. 3 passages per day. */
+  TrackBSession: { dayNumber: number; passageIds: string[]; dayTitle: string };
   VocabHelper: { word: string; sourceSentenceId?: string };
   RewardedConfirm: {
     rewardType: 'heart' | 'unlock' | 'drill-retry';
