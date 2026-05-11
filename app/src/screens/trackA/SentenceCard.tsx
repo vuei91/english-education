@@ -33,6 +33,12 @@ export type SentenceCardProps = {
   textKo?: string | null;
   onWordPress?: (word: string) => void;
   /**
+   * When provided, only words in this set are rendered as tappable.
+   * Words not in the set appear as plain text. If omitted, all words
+   * are tappable (backward-compatible default).
+   */
+  tappableWords?: Set<string>;
+  /**
    * Presentation mode. Defaults to `'en-to-ko'` for backward
    * compatibility with existing callers.
    */
@@ -55,10 +61,12 @@ const WORD_SPLIT = /(\s+)/; // preserve whitespace so layout matches the source
 function EnglishWords({
   textEn,
   onWordPress,
+  tappableWords,
   styles,
 }: {
   textEn: string;
   onWordPress?: (word: string) => void;
+  tappableWords?: Set<string>;
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
@@ -66,7 +74,8 @@ function EnglishWords({
       {textEn.split(WORD_SPLIT).map((token, idx) => {
         if (token.trim() === '') return <Text key={`s-${idx}`}>{token}</Text>;
         const cleaned = token.replace(/[^a-zA-Z'-]/g, '').toLowerCase();
-        const tappable = Boolean(cleaned && onWordPress);
+        const inVocab = tappableWords ? tappableWords.has(cleaned) : true;
+        const tappable = Boolean(cleaned && onWordPress && inVocab);
         return (
           <Text
             key={`w-${idx}`}
@@ -87,6 +96,7 @@ export default function SentenceCard({
   textEn,
   textKo,
   onWordPress,
+  tappableWords,
   mode = 'en-to-ko',
   onRevealEnglish,
   onPlayKorean: _onPlayKorean,
@@ -116,7 +126,7 @@ export default function SentenceCard({
           {textKo ?? '(한국어 번역 없음)'}
         </Text>
       ) : (
-        <EnglishWords textEn={textEn} onWordPress={onWordPress} styles={styles} />
+        <EnglishWords textEn={textEn} onWordPress={onWordPress} tappableWords={tappableWords} styles={styles} />
       )}
 
       {/* Bottom: hidden language, toggle on tap */}
@@ -128,7 +138,7 @@ export default function SentenceCard({
           style={styles.revealedRow}
         >
           {isKoToEn ? (
-            <EnglishWords textEn={textEn} onWordPress={onWordPress} styles={styles} />
+            <EnglishWords textEn={textEn} onWordPress={onWordPress} tappableWords={tappableWords} styles={styles} />
           ) : (
             <Text style={styles.korean}>{textKo ?? ''}</Text>
           )}

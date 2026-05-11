@@ -14,7 +14,7 @@ import { getContentDatabase } from '../../db';
 import { getSupabaseClient } from '../../lib/supabase';
 import type { RootStackParamList, RootStackScreenProps } from '../../navigation/types';
 import { audioPlayer } from '../../services/audio/audioPlayer';
-import { ContentService, type VocabEntry } from '../../services/content';
+import { ContentService, type Sentence, type VocabEntry } from '../../services/content';
 import { VocabService } from '../../services/vocab';
 import { useVocabStore } from '../../stores';
 import { useTheme, type Theme } from '../../theme';
@@ -49,6 +49,7 @@ export default function VocabHelperSheet({ route }: RootStackScreenProps<'VocabH
 
   const [activeWord, setActiveWord] = useState(route.params.word);
   const [entry, setEntry] = useState<VocabEntry | null>(null);
+  const [sourceSentence, setSourceSentence] = useState<Sentence | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('etymology');
   const recordTap = useVocabStore((s) => s.recordTap);
@@ -71,6 +72,13 @@ export default function VocabHelperSheet({ route }: RootStackScreenProps<'VocabH
         const svc = await getService();
         const result = await svc.getEntry(activeWord);
         if (!cancelled) setEntry(result);
+        // Fetch source sentence for translation fallback when no vocab entry exists.
+        if (!result && route.params.sourceSentenceId) {
+          const db = await getContentDatabase();
+          const content = new ContentService(db, getSupabaseClient());
+          const sentence = await content.getSentenceById(route.params.sourceSentenceId);
+          if (!cancelled) setSourceSentence(sentence);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -78,7 +86,7 @@ export default function VocabHelperSheet({ route }: RootStackScreenProps<'VocabH
     return () => {
       cancelled = true;
     };
-  }, [activeWord, getService]);
+  }, [activeWord, getService, route.params.sourceSentenceId]);
 
   // When the sheet first appears, record the tap.
   useEffect(() => {
@@ -170,9 +178,16 @@ export default function VocabHelperSheet({ route }: RootStackScreenProps<'VocabH
         {loading ? (
           <ActivityIndicator style={styles.loader} color={theme.colors.primary} />
         ) : availableTabs.length === 0 ? (
-          <Text style={styles.emptyBody}>
-            아직 이 단어 정보가 준비되지 않았어요. 배치 큐에 추가됩니다.
-          </Text>
+          <View style={styles.fallbackBody}>
+            {entry?.meaningKo ? (
+              <Text style={styles.fallbackTranslation}>{entry.meaningKo}</Text>
+            ) : sourceSentence?.textKo ? (
+              <>
+                <Text style={styles.fallbackLabel}>문장 번역</Text>
+                <Text style={styles.fallbackTranslation}>{sourceSentence.textKo}</Text>
+              </>
+            ) : null}
+          </View>
         ) : (
           <>
             <View style={styles.tabBar}>
@@ -343,6 +358,18 @@ function makeStyles(theme: Theme) {
     emptyBody: {
       ...theme.typography.body,
       color: theme.colors.textMuted,
+    },
+    fallbackBody: {
+      gap: theme.spacing.sm,
+    },
+    fallbackLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
+    },
+    fallbackTranslation: {
+      ...theme.typography.body,
+      color: theme.colors.text,
+      lineHeight: 24,
     },
   });
 }

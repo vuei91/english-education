@@ -309,6 +309,24 @@ export class ContentService {
     return entry;
   }
 
+  /**
+   * Returns the set of all words that have a vocab_entries row.
+   * Used by SentenceCard to decide which words are tappable.
+   * Cached locally for 7 days like other content.
+   */
+  async getKnownVocabWords(): Promise<Set<string>> {
+    const cacheKey = '__all_vocab_words__';
+    const cached = await this.readCache<string[]>('vocab', cacheKey);
+    if (cached) return new Set(cached);
+    const { data, error } = await this.supabase
+      .from('vocab_entries')
+      .select('word');
+    if (error) throw new Error(error.message);
+    const words = (data ?? []).map((r) => r.word as string);
+    await this.writeCache('vocab', cacheKey, words);
+    return new Set(words);
+  }
+
   async getPatternDrillSet(originSentenceId: string): Promise<PatternDrill | null> {
     const cached = await this.readCache<PatternDrill>('drill', originSentenceId);
     if (cached) {

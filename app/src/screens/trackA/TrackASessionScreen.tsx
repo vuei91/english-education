@@ -10,7 +10,7 @@ import { ContentService, type Sentence } from '../../services/content';
 import { CurriculumService } from '../../services/curriculum/CurriculumService';
 import { getSupabaseClient } from '../../lib/supabase';
 import { getContentDatabase } from '../../db';
-import { useSessionStore, useUserStore, useVocabStore, useProgressStore } from '../../stores';
+import { useSessionStore, useUserStore, useProgressStore } from '../../stores';
 import { useTheme, type Theme } from '../../theme';
 import type { CurriculumDay, CurriculumStep, IntroPhrase } from '../../types/domain';
 import AudioControls from './AudioControls';
@@ -43,7 +43,6 @@ export default function TrackASessionScreen() {
   const cefrLevel = useUserStore((s) => s.cefrLevel);
   const startSession = useSessionStore((s) => s.startSession);
   const endSession = useSessionStore((s) => s.endSession);
-  const recordTap = useVocabStore((s) => s.recordTap);
   const completeSentence = useProgressStore((s) => s.completeSentence);
   const markStepCompleted = useProgressStore((s) => s.markStepCompleted);
   const dayProgress = useProgressStore((s) => s.dayProgress);
@@ -289,22 +288,6 @@ export default function TrackASessionScreen() {
     await audioPlayer.speak(sentence.textKo, { language: 'ko-KR' });
   }, [sentence]);
 
-  const handleWordPress = useCallback(
-    (word: string) => {
-      if (!sentence) return;
-      recordTap({
-        word,
-        tappedAt: Date.now(),
-        sourceSentenceId: sentence.id,
-      });
-      navigation.navigate('VocabHelper', {
-        word,
-        sourceSentenceId: sentence.id,
-      });
-    },
-    [navigation, recordTap, sentence],
-  );
-
   /** Mark all steps/units complete and clear Day progress. */
   const finishDay = useCallback(() => {
     const steps = allStepsRef.current;
@@ -508,7 +491,6 @@ export default function TrackASessionScreen() {
             <SentenceCard
               textEn={sentence.textEn}
               textKo={sentence.textKo}
-              onWordPress={handleWordPress}
               mode={cardMode}
               onRevealEnglish={() => {
                 void handleRevealEnglish();

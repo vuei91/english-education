@@ -20,7 +20,7 @@ import {
   type Sentence,
   type StructureSummary,
 } from '../services/content';
-import { useSessionStore, useUserStore, useVocabStore, useProgressStore } from '../stores';
+import { useSessionStore, useUserStore, useProgressStore } from '../stores';
 import { useTheme, type Theme } from '../theme';
 import type { PlaybackSpeed, TrackBStep } from '../types/domain';
 import ChunkingView from './trackB/ChunkingView';
@@ -57,7 +57,6 @@ export default function TrackBSessionScreen() {
   const setChunkIndex = useSessionStore((s) => s.setChunkIndex);
   const currentStep = useSessionStore((s) => s.currentStep) ?? 'chunking';
   const currentChunkIndex = useSessionStore((s) => s.currentChunkIndex);
-  const recordTap = useVocabStore((s) => s.recordTap);
   const recentTaps = useVocabStore((s) => s.recentTaps);
   const completeSentence = useProgressStore((s) => s.completeSentence);
 
@@ -176,22 +175,6 @@ export default function TrackBSessionScreen() {
     }
   }, [chunks, chunkPauseEnabled, currentChunkIndex, speed]);
 
-  const handleWordTap = useCallback(
-    (word: string) => {
-      if (!sentence) return;
-      recordTap({
-        word,
-        tappedAt: Date.now(),
-        sourceSentenceId: sentence.id,
-      });
-      navigation.navigate('VocabHelper', {
-        word,
-        sourceSentenceId: sentence.id,
-      });
-    },
-    [navigation, recordTap, sentence],
-  );
-
   const goToNextStep = useCallback(() => {
     const idx = STEP_ORDER.indexOf(currentStep);
     if (idx < STEP_ORDER.length - 1) {
@@ -257,7 +240,6 @@ export default function TrackBSessionScreen() {
               <ChunkingView
                 chunks={chunks}
                 onChunkTap={(c) => void playChunk(c)}
-                onWordTap={(word) => handleWordTap(word)}
                 activeChunkIndex={currentChunkIndex}
               />
             ) : null}
