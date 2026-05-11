@@ -3,6 +3,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,10 +22,11 @@ import {
   type Sentence,
   type StructureSummary,
 } from '../services/content';
-import { useSessionStore, useUserStore, useProgressStore } from '../stores';
+import { useSessionStore, useUserStore, useVocabStore, useProgressStore } from '../stores';
 import { useTheme, type Theme } from '../theme';
 import type { PlaybackSpeed, TrackBStep } from '../types/domain';
 import ChunkingView from './trackB/ChunkingView';
+import ReadingQuizView from './trackB/ReadingQuizView';
 import ShadowingPlayer from './trackB/ShadowingPlayer';
 import StructureSummaryView from './trackB/StructureSummaryView';
 
@@ -36,13 +39,14 @@ import StructureSummaryView from './trackB/StructureSummaryView';
  */
 
 const STEP_LABELS: Record<TrackBStep, string> = {
-  chunking: '청킹',
   listen: '듣기',
-  shadowing: '섀도잉',
+  chunking: '청킹',
   summary: '구조 요약',
+  quiz: '독해 퀴즈',
+  shadowing: '섀도잉',
 };
 
-const STEP_ORDER: TrackBStep[] = ['chunking', 'listen', 'shadowing', 'summary'];
+const STEP_ORDER: TrackBStep[] = ['listen', 'chunking', 'summary', 'quiz'];
 
 export default function TrackBSessionScreen() {
   const theme = useTheme();
@@ -67,9 +71,11 @@ export default function TrackBSessionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState<PlaybackSpeed>(1);
   const [chunkPauseEnabled, setChunkPauseEnabled] = useState(false);
+  const [cachedQuestion, setCachedQuestion] = useState<{ type: string; questionKo: string } | null>(null);
 
   const shownIdsRef = useRef<string[]>([]);
   const serviceRef = useRef<ContentService | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const getService = useCallback(async () => {
     if (serviceRef.current) return serviceRef.current;
@@ -87,7 +93,7 @@ export default function TrackBSessionScreen() {
       const hotWords = Array.from(
         new Set(recentTaps.filter((t) => t.tappedAt >= cutoff).map((t) => t.word)),
       ).slice(0, 20);
-      const next = await svc.getNextSentence('B', cefrLevel, {
+      const next = await svc.getNextSentence('B', 'C1', {
         hotWords,
         excludeIds: shownIdsRef.current,
       });
@@ -95,12 +101,14 @@ export default function TrackBSessionScreen() {
       if (!next) {
         setChunks([]);
         setSummary(null);
+        setCachedQuestion(null);
         return;
       }
       shownIdsRef.current = [...shownIdsRef.current, next.id].slice(-50);
       startSession('B', next.id);
-      setStep('chunking');
+      setStep('listen');
       setChunkIndex(0);
+      setCachedQuestion(null);
 
       const [loadedChunks, loadedSummary] = await Promise.all([
         svc.getChunks(next.id),
@@ -196,10 +204,16 @@ export default function TrackBSessionScreen() {
   }, [currentStep, setStep]);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={100}
+    >
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
       >
         {loading ? (
           <View style={styles.center}>
@@ -286,6 +300,18 @@ export default function TrackBSessionScreen() {
               <StructureSummaryView summary={summary} />
             ) : null}
 
+            {currentStep === 'quiz' && sentence ? (
+              <ReadingQuizView
+                sentenceEn={sentence.textEn}
+                sentenceKo={sentence.textKo}
+                question={cachedQuestion ?? undefined}
+                onPrev={goToPrevStep}
+                onComplete={goToNextStep}
+                onQuestionGenerated={setCachedQuestion}
+              />
+            ) : null}
+
+            {currentStep !== 'quiz' ? (
             <View style={styles.navRow}>
               <Pressable
                 accessibilityRole="button"
@@ -333,10 +359,11 @@ export default function TrackBSessionScreen() {
                 </Text>
               </Pressable>
             </View>
+            ) : null}
           </>
         )}
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
