@@ -12,9 +12,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
  */
 export type RootStackParamList = {
   RootTabs: NavigatorScreenParams<RootTabsParamList>;
-  /** 30-day curriculum list, optionally filtered to a chapter. */
+  /** 60-day curriculum list, optionally filtered to a chapter. */
   DayList: { chapter?: 1 | 2 | 3 };
-  /** Track A session. `dayNumber` links back to the 30-day curriculum. */
+  /** Track A session. `dayNumber` links back to the 60-day curriculum. */
   TrackASession: { unitId: string; unitIds?: string[]; unitTitle: string; dayNumber?: number };
   VocabHelper: { word: string; sourceSentenceId?: string };
   RewardedConfirm: {

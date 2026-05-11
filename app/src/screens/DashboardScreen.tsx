@@ -107,7 +107,7 @@ export default function DashboardScreen() {
         </Pressable>
       ) : allDone ? (
         <View style={styles.heroCta}>
-          <Text style={styles.heroTitle}>🎉 30일 완주!</Text>
+          <Text style={styles.heroTitle}>🎉 60일 완주!</Text>
           <Text style={styles.heroSub}>축하합니다! 모든 학습을 완료했어요.</Text>
         </View>
       ) : null}
@@ -148,9 +148,9 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* ── 30일 챌린지 진행률 ── */}
+      {/* ── 60일 챌린지 진행률 ── */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>📅 30일 챌린지</Text>
+        <Text style={styles.cardTitle}>📅 60일 챌린지</Text>
         <Text style={styles.cardDesc}>
           {allDone
             ? '모든 Day를 완료했어요!'
@@ -164,7 +164,7 @@ export default function DashboardScreen() {
         <View
           style={styles.progressTrack}
           accessibilityRole="progressbar"
-          accessibilityLabel={`30일 중 ${completedDays}일 완료`}
+          accessibilityLabel={`60일 중 ${completedDays}일 완료`}
         >
           <View
             style={[styles.progressFill, { width: `${(completedDays / TOTAL_DAYS) * 100}%` }]}
@@ -176,10 +176,10 @@ export default function DashboardScreen() {
       <Pressable
         onPress={() => navigation.navigate('DayList', {})}
         accessibilityRole="button"
-        accessibilityLabel="30일 커리큘럼 전체 보기"
+        accessibilityLabel="60일 커리큘럼 전체 보기"
         style={({ pressed }) => [styles.ctaSecondary, pressed && { opacity: 0.85 }]}
       >
-        <Text style={styles.ctaSecondaryText}>30일 커리큘럼 전체 보기</Text>
+        <Text style={styles.ctaSecondaryText}>60일 커리큘럼 전체 보기</Text>
       </Pressable>
     </ScrollView>
   );

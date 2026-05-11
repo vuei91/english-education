@@ -34,7 +34,7 @@ export default function RootNavigator() {
         component={RecentWordsScreen}
         options={{ title: '최근 본 단어' }}
       />
-      <Stack.Screen name="DayList" component={DayListScreen} options={{ title: '30일 커리큘럼' }} />
+      <Stack.Screen name="DayList" component={DayListScreen} options={{ title: '60일 커리큘럼' }} />
       <Stack.Screen
         name="TrackASession"
         component={TrackASessionScreen}
