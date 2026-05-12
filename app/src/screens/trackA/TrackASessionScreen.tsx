@@ -14,6 +14,7 @@ import { useSessionStore, useUserStore, useProgressStore } from '../../stores';
 import { useTheme, type Theme } from '../../theme';
 import type { CurriculumDay, CurriculumStep, IntroPhrase } from '../../types/domain';
 import AudioControls from './AudioControls';
+import RepetitionTracker from './RepetitionTracker';
 import SentenceCard, { type CardMode } from './SentenceCard';
 
 /**
@@ -55,6 +56,7 @@ export default function TrackASessionScreen() {
   const [error, setError] = useState<string | null>(null);
   const [playCount, setPlayCount] = useState(0);
   const [nextDay, setNextDay] = useState<CurriculumDay | null>(null);
+  const [repCount, setRepCount] = useState(0);
 
   // Intro phase state
   const [introPhrases, setIntroPhrases] = useState<IntroPhrase[]>([]);
@@ -197,6 +199,7 @@ export default function TrackASessionScreen() {
     const useKoToEn = hasKorean && currentIndex >= EN_FIRST_COUNT;
     startSession('A', sentence.id);
     setPlayCount(0);
+    setRepCount(0);
 
     void (async () => {
       if (useKoToEn && sentence.textKo) {
@@ -239,10 +242,12 @@ export default function TrackASessionScreen() {
     if (introIndex < introPhrases.length - 1) {
       setIntroIndex(introIndex + 1);
       setPlayCount(0);
+      setRepCount(0);
     } else {
       // Intro done → switch to main phase
       setPhase('main');
       setPlayCount(0);
+      setRepCount(0);
     }
   }, [introIndex, introPhrases.length]);
 
@@ -250,6 +255,7 @@ export default function TrackASessionScreen() {
     if (introIndex > 0) {
       setIntroIndex(introIndex - 1);
       setPlayCount(0);
+      setRepCount(0);
     }
   }, [introIndex]);
 
@@ -408,6 +414,7 @@ export default function TrackASessionScreen() {
               <Text style={styles.introKo}>{currentIntro.ko}</Text>
             </View>
             <AudioControls onPlay={handleIntroPlay} playCount={playCount} />
+            <RepetitionTracker count={repCount} onCheck={() => setRepCount((n) => n + 1)} />
             <View style={styles.navRow}>
               <Pressable
                 onPress={handleIntroPrev}
@@ -500,6 +507,7 @@ export default function TrackASessionScreen() {
               }}
             />
             <AudioControls onPlay={handlePlay} playCount={playCount} />
+            <RepetitionTracker count={repCount} onCheck={() => setRepCount((n) => n + 1)} />
             <View style={styles.navRow}>
               <Pressable
                 onPress={handlePrev}

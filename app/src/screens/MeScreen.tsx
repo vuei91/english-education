@@ -1,7 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo } from 'react';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import type { RootStackParamList } from '../navigation/types';
 import {
@@ -9,6 +9,7 @@ import {
   useHydrateProgressStore,
   useProgressStore,
   useUserStore,
+  useVocabStore,
 } from '../stores';
 import { useTheme, type Theme } from '../theme';
 import type { Track } from '../types/domain';
@@ -29,9 +30,34 @@ export default function MeScreen() {
   useHydrateProgressStore();
   const dailyGoal = useProgressStore((s) => s.dailyGoal);
   const setDailyGoal = useProgressStore((s) => s.setDailyGoal);
+  const resetProgress = useProgressStore((s) => s.reset);
+  const clearTaps = useVocabStore((s) => s.clearTaps);
 
   const preferredTrack = useUserStore((s) => s.preferredTrack);
   const setPreferredTrack = useUserStore((s) => s.setPreferredTrack);
+
+  const handleResetProgress = useCallback(() => {
+    const doReset = () => {
+      resetProgress();
+      clearTaps();
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        '진행 상황, 스트릭, 패턴 배지, 단어 기록이 모두 초기화됩니다. 이 작업은 되돌릴 수 없습니다.',
+      );
+      if (confirmed) doReset();
+    } else {
+      Alert.alert(
+        '학습 기록 초기화',
+        '진행 상황, 스트릭, 패턴 배지, 단어 기록이 모두 초기화됩니다. 이 작업은 되돌릴 수 없습니다.',
+        [
+          { text: '취소', style: 'cancel' },
+          { text: '초기화', style: 'destructive', onPress: doReset },
+        ],
+      );
+    }
+  }, [resetProgress, clearTaps]);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -81,6 +107,19 @@ export default function MeScreen() {
       >
         <Text style={styles.rowLabel}>📚  최근 본 단어</Text>
         <Text style={styles.rowChevron}>›</Text>
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="학습 기록 초기화"
+        onPress={handleResetProgress}
+        style={({ pressed }) => [
+          styles.row,
+          styles.rowDanger,
+          pressed ? { opacity: 0.85 } : null,
+        ]}
+      >
+        <Text style={styles.rowLabelDanger}>🔄  학습 기록 초기화</Text>
       </Pressable>
     </ScrollView>
   );
@@ -199,6 +238,13 @@ function makeStyles(theme: Theme) {
     rowChevron: {
       ...theme.typography.heading,
       color: theme.colors.textMuted,
+    },
+    rowDanger: {
+      borderColor: theme.colors.danger,
+    },
+    rowLabelDanger: {
+      ...theme.typography.button,
+      color: theme.colors.danger,
     },
   });
 }
