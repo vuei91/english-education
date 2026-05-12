@@ -15,7 +15,11 @@
     "primaryColor": "#3ecf8e",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.wkwk2805.fluen"
+      "bundleIdentifier": "com.wkwk2805.fluen",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -25,8 +29,6 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
@@ -48,6 +50,11 @@
           "backgroundColor": "#ffffff"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "64b305e0-8920-40f5-a5db-b0bfc8361f2e"
+      }
+    }
   }
 }

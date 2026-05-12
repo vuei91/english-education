@@ -18,16 +18,10 @@ type RequiredEnv = {
   SUPABASE_PUBLISHABLE_KEY: string;
 };
 
-function read(key: keyof RequiredEnv): string | undefined {
-  const fullKey = `EXPO_PUBLIC_${key}` as const;
-  // process.env is available in RN thanks to the babel expo preset.
-  return process.env[fullKey];
-}
-
-function assertPresent(key: keyof RequiredEnv, value: string | undefined): string {
+function assertPresent(name: string, value: string | undefined): string {
   if (!value || value.length === 0) {
     throw new Error(
-      `Missing required env variable EXPO_PUBLIC_${key}. Copy .env.example to .env and fill it in.`,
+      `Missing required env variable ${name}. Copy .env.example to .env and fill it in.`,
     );
   }
   return value;
@@ -35,10 +29,14 @@ function assertPresent(key: keyof RequiredEnv, value: string | undefined): strin
 
 export const env: RequiredEnv = {
   get SUPABASE_URL() {
-    return assertPresent('SUPABASE_URL', read('SUPABASE_URL'));
+    // Static reference so Expo/Metro can inline the value at build time.
+    return assertPresent('EXPO_PUBLIC_SUPABASE_URL', process.env.EXPO_PUBLIC_SUPABASE_URL);
   },
   get SUPABASE_PUBLISHABLE_KEY() {
-    return assertPresent('SUPABASE_PUBLISHABLE_KEY', read('SUPABASE_PUBLISHABLE_KEY'));
+    return assertPresent(
+      'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+      process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    );
   },
 };
 
@@ -48,6 +46,7 @@ export const env: RequiredEnv = {
  */
 export function isSupabaseConfigured(): boolean {
   return (
-    Boolean(read('SUPABASE_URL')) && Boolean(read('SUPABASE_PUBLISHABLE_KEY'))
+    Boolean(process.env.EXPO_PUBLIC_SUPABASE_URL) &&
+    Boolean(process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
   );
 }
