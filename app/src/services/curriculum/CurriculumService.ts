@@ -2,7 +2,6 @@ import type * as SQLite from 'expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type {
-  CEFRLevel,
   CurriculumDay,
   CurriculumStep,
   CurriculumStepType,
@@ -67,7 +66,6 @@ type DayRow = {
   subtitle_ko: string | null;
   description_ko: string | null;
   is_review: boolean;
-  cefr_level: CEFRLevel;
   intro_phrases: Array<{ en: string; ko: string }> | null;
   curriculum_day_unit?: Array<{ unit_id: string; order_index: number }> | null;
 };
@@ -77,7 +75,6 @@ type UnitRow = {
   id: string;
   order_index: number;
   title_ko: string;
-  cefr_level: CEFRLevel;
   opens_track: GrammarTrack | null;
   opens_point: string | null;
   vocab_pack_id: string;
@@ -109,7 +106,7 @@ type VocabPackEntryRow = {
 };
 
 export class CurriculumService {
-  /** In-memory catalog cache keyed by level bucket (`'all' | CEFRLevel`). */
+  /** In-memory catalog cache keyed by cache key (`'all'`). */
   private readonly catalogMemo = new Map<string, CurriculumUnit[]>();
   /** In-memory per-unit cache — fuels the sync `getNextStep`/`isUnitUnlocked`. */
   private readonly unitMemo = new Map<string, UnitWithSteps>();
@@ -122,11 +119,11 @@ export class CurriculumService {
   ) {}
 
   /**
-   * List all curriculum units, optionally scoped to a CEFR level.
+   * List all curriculum units.
    * Results are sorted by `order_index` ascending. (Req 7.1, 7.2)
    */
-  async listUnits(level?: CEFRLevel): Promise<CurriculumUnit[]> {
-    const cacheKey = level ?? 'all';
+  async listUnits(): Promise<CurriculumUnit[]> {
+    const cacheKey = 'all';
 
     const memoHit = this.catalogMemo.get(cacheKey);
     if (memoHit) return memoHit;
@@ -134,15 +131,12 @@ export class CurriculumService {
     // Try the network first so new seeds propagate without a manual
     // invalidate; fall back to SQLite only when Supabase is unreachable.
     try {
-      let query = this.supabase
+      const query = this.supabase
         .from('curriculum_unit')
         .select(
           '*, curriculum_unit_prerequisite!curriculum_unit_prerequisite_unit_id_fkey(prerequisite_id)',
         )
         .order('order_index', { ascending: true });
-      if (level) {
-        query = query.eq('cefr_level', level);
-      }
       const { data, error } = await query;
       if (error) throw new Error(error.message);
       const units = (data ?? []).map(mapUnitRow);
@@ -432,7 +426,6 @@ function mapUnitRow(row: UnitRow): CurriculumUnit {
     id: row.id,
     orderIndex: row.order_index,
     titleKo: row.title_ko,
-    cefrLevel: row.cefr_level,
     opens,
     vocabPackId: row.vocab_pack_id,
     theme: row.theme,
@@ -455,7 +448,6 @@ function mapDayRow(row: DayRow): CurriculumDay {
     isReview: row.is_review,
     unitId: unitIds[0] ?? '',
     unitIds,
-    cefrLevel: row.cefr_level,
     introPhrases: (row.intro_phrases ?? []).map((p) => ({ en: p.en, ko: p.ko })),
   };
 }

@@ -148,7 +148,7 @@ function makeStyles(theme: Theme) {
       backgroundColor: theme.colors.bg,
     },
     emptyTitle: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
     },
     emptyHint: {

@@ -99,7 +99,7 @@ export default function DashboardScreen() {
           </Text>
           <Text style={styles.heroSub}>
             {CHAPTERS.find((ch) => ch.number === currentDay.chapter)?.titleKo ?? ''} ·{' '}
-            {currentDay.cefrLevel} · {currentDay.unitIds.length}개 단원
+            {currentDay.unitIds.length}개 단원
           </Text>
           <View style={styles.heroButtonRow}>
             <Text style={styles.heroButtonText}>학습 시작 →</Text>
@@ -215,7 +215,7 @@ function makeStyles(theme: Theme) {
       letterSpacing: 1,
     },
     heroTitle: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.primaryOn,
     },
     heroSub: {
@@ -270,7 +270,7 @@ function makeStyles(theme: Theme) {
       fontWeight: '600',
     },
     challengeProgress: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.primary,
     },
     /* ── 통계 카드 ── */
@@ -287,7 +287,7 @@ function makeStyles(theme: Theme) {
       gap: 4,
     },
     statValue: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
       fontSize: 16,
     },

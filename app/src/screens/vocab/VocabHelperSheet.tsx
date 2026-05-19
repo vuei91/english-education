@@ -313,7 +313,7 @@ function makeStyles(theme: Theme) {
       gap: theme.spacing.md,
     },
     word: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
     },
     meta: {

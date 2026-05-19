@@ -201,7 +201,7 @@ function makeStyles(theme: Theme) {
       gap: theme.spacing.sm,
     },
     progressTitle: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
     },
     progressCount: {
@@ -291,7 +291,7 @@ function makeStyles(theme: Theme) {
       color: theme.colors.textMuted,
     },
     checkMark: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.primary,
       fontSize: 18,
     },

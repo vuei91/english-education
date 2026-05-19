@@ -18,7 +18,7 @@ function buildNavTheme(base: NavTheme, theme: Theme): NavTheme {
       text: theme.colors.text,
       border: theme.colors.border,
       primary: theme.colors.primary,
-      notification: theme.colors.accent,
+      notification: theme.colors.danger,
     },
   };
 }

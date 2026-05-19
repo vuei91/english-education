@@ -28,7 +28,6 @@ target_unit_id        단원 식별자
 target_unit_theme     단원 주제 (food / daily / shopping / ...)
 target_grammar_point  이 단원이 여는 문법 지점 (T2, S3, V2 등) 또는 null
 previous_packs        이전 팩 엔트리 목록 (재활용 후보 풀)
-cefr_level            A1 | A2 | B1 | B2
 reuse_ratio_target    0.2 ~ 0.3 (기본), 초과 시 명시적 이유 필요
 ```
 

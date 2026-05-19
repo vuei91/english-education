@@ -18,7 +18,7 @@ export default function PlaceholderScreen({ title, hint }: Props) {
     <View style={[styles.container, { backgroundColor: theme.colors.bg, padding: theme.spacing.lg }]}>
       <Text
         style={[
-          theme.typography.heading,
+          theme.typography.headingLg,
           { color: theme.colors.text, marginBottom: theme.spacing.sm },
         ]}
       >

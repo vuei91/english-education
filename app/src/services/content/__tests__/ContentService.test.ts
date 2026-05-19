@@ -62,31 +62,25 @@ describe('ContentService.getNextSentence', () => {
     track: 'A',
     text_en: 'I want to eat pizza.',
     text_ko: '나는 피자가 먹고 싶어.',
-    cefr_level: 'A2',
     situation: 'food',
     source: 'tatoeba',
     license: 'CC-BY-2.0-FR',
   };
 
-  it('passes level + hot words + excludes into the RPC', async () => {
+  it('passes hot words + excludes into the RPC', async () => {
     const { db } = createFakeDb();
     const { client, rpc } = createFakeSupabase([row]);
     const svc = new ContentService(db, client);
 
-    await svc.getNextSentence('A', 'B1', {
+    await svc.getNextSentence('A', {
       hotWords: ['Passport', 'LATTE'],
       excludeIds: ['abc'],
     });
 
     expect(rpc).toHaveBeenCalledWith('pick_next_sentence', {
       p_track: 'A',
-      p_cefr: 'B1',
       p_hot_words: ['passport', 'latte'],
       p_exclude_ids: ['abc'],
-      // curriculum-foundation Task 8.1 added this arg. When the caller
-      // omits `curriculumStepId` we pass `null`, preserving the
-      // pre-curriculum RPC behaviour (Req 5.3). The step-filtered case
-      // gets its own dedicated test in Task 15.
       p_curriculum_step_id: null,
     });
   });
@@ -96,7 +90,7 @@ describe('ContentService.getNextSentence', () => {
     const { client } = createFakeSupabase([row]);
     const svc = new ContentService(db, client);
 
-    const sentence = await svc.getNextSentence('A', 'A2');
+    const sentence = await svc.getNextSentence('A');
 
     expect(sentence?.id).toBe('s1');
     expect(sentence?.textEn).toBe('I want to eat pizza.');
@@ -107,7 +101,7 @@ describe('ContentService.getNextSentence', () => {
     const { db } = createFakeDb();
     const { client } = createFakeSupabase([]);
     const svc = new ContentService(db, client);
-    expect(await svc.getNextSentence('A', 'A2')).toBeNull();
+    expect(await svc.getNextSentence('A')).toBeNull();
   });
 });
 
@@ -123,7 +117,6 @@ describe('ContentService.getNextSentence — curriculum step filtering', () => {
     track: 'A',
     text_en: 'I like apples.',
     text_ko: '나는 사과를 좋아해.',
-    cefr_level: 'A1',
     situation: 'food',
     source: 'custom',
     license: 'CC0',
@@ -146,11 +139,10 @@ describe('ContentService.getNextSentence — curriculum step filtering', () => {
     const { client, rpc } = createFakeSupabase([curriculumRow]);
     const svc = new ContentService(db, client);
 
-    await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+    await svc.getNextSentence('A', { curriculumStepId: stepId });
 
     expect(rpc).toHaveBeenCalledWith('pick_next_sentence', {
       p_track: 'A',
-      p_cefr: 'A1',
       p_hot_words: [],
       p_exclude_ids: [],
       p_curriculum_step_id: stepId,
@@ -163,7 +155,7 @@ describe('ContentService.getNextSentence — curriculum step filtering', () => {
     const { client } = createFakeSupabase([curriculumRow]);
     const svc = new ContentService(db, client);
 
-    const sentence = await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+    const sentence = await svc.getNextSentence('A', { curriculumStepId: stepId });
 
     expect(sentence).not.toBeNull();
     expect(sentence!.curriculumStepId).toBe(stepId);
@@ -175,7 +167,7 @@ describe('ContentService.getNextSentence — curriculum step filtering', () => {
     const { client } = createFakeSupabase([phraseRow]);
     const svc = new ContentService(db, client);
 
-    const sentence = await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+    const sentence = await svc.getNextSentence('A', { curriculumStepId: stepId });
 
     expect(sentence).not.toBeNull();
     expect(sentence!.isPhrase).toBe(true);
@@ -188,35 +180,12 @@ describe('ContentService.getNextSentence — curriculum step filtering', () => {
     const { client, rpc } = createFakeSupabase([curriculumRow]);
     const svc = new ContentService(db, client);
 
-    await svc.getNextSentence('A', 'A1');
+    await svc.getNextSentence('A');
 
     expect(rpc).toHaveBeenCalledWith(
       'pick_next_sentence',
       expect.objectContaining({ p_curriculum_step_id: null }),
     );
-  });
-
-  it('returns a valid Sentence with default isPhrase when row lacks curriculum fields (Req 5.3)', async () => {
-    const legacyRow = {
-      id: 's-legacy',
-      track: 'A',
-      text_en: 'Hello world.',
-      text_ko: '안녕 세상.',
-      cefr_level: 'A1',
-      situation: null,
-      source: 'tatoeba',
-      license: 'CC-BY-2.0-FR',
-      // no curriculum_step_id or is_phrase — simulates pre-migration row
-    };
-    const { db } = createFakeDb();
-    const { client } = createFakeSupabase([legacyRow]);
-    const svc = new ContentService(db, client);
-
-    const sentence = await svc.getNextSentence('A', 'A1');
-
-    expect(sentence).not.toBeNull();
-    expect(sentence!.curriculumStepId).toBeNull();
-    expect(sentence!.isPhrase).toBe(false);
   });
 
   // Task 15.3 — Req 5.4: no fallback when curriculumStepId yields empty
@@ -225,7 +194,7 @@ describe('ContentService.getNextSentence — curriculum step filtering', () => {
     const { client } = createFakeSupabase([]);  // empty result
     const svc = new ContentService(db, client);
 
-    const result = await svc.getNextSentence('A', 'A1', { curriculumStepId: stepId });
+    const result = await svc.getNextSentence('A', { curriculumStepId: stepId });
 
     expect(result).toBeNull();
   });

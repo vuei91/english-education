@@ -182,7 +182,7 @@ function makeStyles(theme: Theme) {
       gap: theme.spacing.lg,
     },
     title: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
     },
     section: {
@@ -236,7 +236,7 @@ function makeStyles(theme: Theme) {
       color: theme.colors.text,
     },
     rowChevron: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.textMuted,
     },
     rowDanger: {

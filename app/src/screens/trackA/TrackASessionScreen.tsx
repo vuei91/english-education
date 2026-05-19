@@ -10,7 +10,7 @@ import { ContentService, type Sentence } from '../../services/content';
 import { CurriculumService } from '../../services/curriculum/CurriculumService';
 import { getSupabaseClient } from '../../lib/supabase';
 import { getContentDatabase } from '../../db';
-import { useSessionStore, useUserStore, useProgressStore } from '../../stores';
+import { useSessionStore, useProgressStore } from '../../stores';
 import { useTheme, type Theme } from '../../theme';
 import type { CurriculumDay, CurriculumStep, IntroPhrase } from '../../types/domain';
 import AudioControls from './AudioControls';
@@ -41,7 +41,6 @@ export default function TrackASessionScreen() {
   const unitIds = route.params?.unitIds;
   const dayNumber = route.params?.dayNumber;
 
-  const cefrLevel = useUserStore((s) => s.cefrLevel);
   const startSession = useSessionStore((s) => s.startSession);
   const endSession = useSessionStore((s) => s.endSession);
   const completeSentence = useProgressStore((s) => s.completeSentence);
@@ -164,7 +163,7 @@ export default function TrackASessionScreen() {
     } finally {
       setLoading(false);
     }
-  }, [unitId, unitIds, dayNumber, cefrLevel, dayProgress, getContentService, getCurriculumService]);
+  }, [unitId, unitIds, dayNumber, dayProgress, getContentService, getCurriculumService]);
 
   // Prefetch the next Day for "다음 학습" navigation when the Day completes.
   const prefetchNextDay = useCallback(async () => {
@@ -683,7 +682,7 @@ function makeStyles(theme: Theme) {
       fontWeight: '700',
     },
     dayIntroTitle: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
       fontSize: 20,
       textAlign: 'center',

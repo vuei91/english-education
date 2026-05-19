@@ -27,7 +27,7 @@ export default function RewardedConfirmModal({
       >
         <Text
           style={[
-            theme.typography.heading,
+            theme.typography.headingLg,
             { color: theme.colors.text, marginBottom: theme.spacing.sm },
           ]}
         >

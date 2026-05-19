@@ -664,7 +664,7 @@ function Level4SentenceBuilder({
                 styles.slotChip,
                 {
                   borderColor: isOffending
-                    ? theme.colors.accent
+                    ? theme.colors.danger
                     : filled
                       ? theme.colors.primary
                       : theme.colors.border,
@@ -682,7 +682,7 @@ function Level4SentenceBuilder({
                   styles.slotChipLabel,
                   {
                     color: isOffending
-                      ? theme.colors.accent
+                      ? theme.colors.danger
                       : filled
                         ? theme.colors.primary
                         : theme.colors.textMuted,
@@ -756,7 +756,7 @@ function renderDefaultRetryBanner(
       style={[
         styles.retryBanner,
         {
-          borderColor: theme.colors.accent,
+          borderColor: theme.colors.danger,
           backgroundColor: theme.colors.surfaceElevated,
         },
       ]}
@@ -832,7 +832,7 @@ function makeStyles(theme: Theme) {
       letterSpacing: 0.5,
     },
     title: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
     },
     variantCard: {

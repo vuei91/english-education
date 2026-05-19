@@ -18,11 +18,10 @@ describe('useUserStore', () => {
     useUserStore.getState().reset();
   });
 
-  it('starts anonymous with A2 / Track A defaults', () => {
+  it('starts anonymous with Track A defaults', () => {
     const s = useUserStore.getState();
     expect(s.userId).toBeNull();
     expect(s.anonymousId).toBeNull();
-    expect(s.cefrLevel).toBe('A2');
     expect(s.preferredTrack).toBe('A');
     expect(s.onboardingCompleted).toBe(false);
   });
@@ -32,11 +31,9 @@ describe('useUserStore', () => {
     expect(useUserStore.getState().onboardingCompleted).toBe(true);
   });
 
-  it('updates CEFR level and preferred track', () => {
-    useUserStore.getState().setCefrLevel('B1');
+  it('updates preferred track', () => {
     useUserStore.getState().setPreferredTrack('B');
     const s = useUserStore.getState();
-    expect(s.cefrLevel).toBe('B1');
     expect(s.preferredTrack).toBe('B');
   });
 });

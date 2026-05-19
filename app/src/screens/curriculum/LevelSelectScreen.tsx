@@ -55,7 +55,7 @@ function makeStyles(theme: Theme) {
       gap: theme.spacing.lg,
     },
     title: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.text,
     },
     subtitle: {
@@ -72,7 +72,7 @@ function makeStyles(theme: Theme) {
       gap: theme.spacing.md,
     },
     levelBadge: {
-      ...theme.typography.heading,
+      ...theme.typography.headingLg,
       color: theme.colors.primary,
       width: 48,
       textAlign: 'center',

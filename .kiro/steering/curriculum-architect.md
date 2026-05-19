@@ -42,7 +42,6 @@ inclusion: manual
   "unit": {
     "order_index": 4,
     "title_ko": "3인칭 단수 -s (drink/eat/have)",
-    "cefr_level": "A1",
     "opens": { "track": "tense", "point": "T2" },
     "theme": "daily",
     "prerequisites": ["unit-1", "unit-2", "unit-3"],

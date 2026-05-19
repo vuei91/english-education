@@ -1,7 +1,7 @@
 import type * as SQLite from 'expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { CEFRLevel, Sentence, Track } from '../../types/domain';
+import type { Sentence, Track } from '../../types/domain';
 import { parsePatternDrillVariants, type PatternDrillVariants } from './patternDrill';
 
 /**
@@ -84,7 +84,6 @@ export class ContentService {
    */
   async getNextSentence(
     track: Track,
-    cefr: CEFRLevel,
     options: {
       /** Words the caller wants boosted, lowercase. */
       hotWords?: string[];
@@ -105,7 +104,6 @@ export class ContentService {
     const hotWords = (options.hotWords ?? []).map((w) => w.toLowerCase());
     const { data, error } = await this.supabase.rpc('pick_next_sentence', {
       p_track: track,
-      p_cefr: cefr,
       p_hot_words: hotWords,
       p_exclude_ids: options.excludeIds ?? [],
       p_curriculum_step_id: options.curriculumStepId ?? null,
@@ -118,14 +116,9 @@ export class ContentService {
       track: row.track as Track,
       textEn: row.text_en as string,
       textKo: (row.text_ko as string | null) ?? null,
-      cefrLevel: row.cefr_level as CEFRLevel,
       situation: (row.situation as string | null) ?? null,
       source: row.source as string,
       license: row.license as string,
-      // `curriculum_step_id` + `is_phrase` were added to the RPC shape in
-      // curriculum-foundation Tasks 2.1~2.3 and the filter option in
-      // Task 8.1. Defensive fallbacks keep us safe if the server is ever
-      // rolled back or the row predates the migration.
       curriculumStepId: (row.curriculum_step_id as string | null | undefined) ?? null,
       isPhrase: (row.is_phrase as boolean | undefined) ?? false,
     };
@@ -141,7 +134,7 @@ export class ContentService {
     const { data, error } = await this.supabase
       .from('sentences')
       .select(
-        'id, track, text_en, text_ko, cefr_level, situation, source, license, curriculum_step_id, is_phrase',
+        'id, track, text_en, text_ko, situation, source, license, curriculum_step_id, is_phrase',
       )
       .eq('id', id)
       .maybeSingle();
@@ -152,7 +145,6 @@ export class ContentService {
       track: data.track as Track,
       textEn: data.text_en as string,
       textKo: (data.text_ko as string | null) ?? null,
-      cefrLevel: data.cefr_level as CEFRLevel,
       situation: (data.situation as string | null) ?? null,
       source: data.source as string,
       license: data.license as string,
@@ -170,7 +162,7 @@ export class ContentService {
     const { data, error } = await this.supabase
       .from('sentences')
       .select(
-        'id, track, text_en, text_ko, cefr_level, situation, source, license, curriculum_step_id, is_phrase, created_at',
+        'id, track, text_en, text_ko, situation, source, license, curriculum_step_id, is_phrase, created_at',
       )
       .in('id', ids as string[])
       .order('created_at', { ascending: true });
@@ -180,7 +172,6 @@ export class ContentService {
       track: row.track as Track,
       textEn: row.text_en as string,
       textKo: (row.text_ko as string | null) ?? null,
-      cefrLevel: row.cefr_level as CEFRLevel,
       situation: (row.situation as string | null) ?? null,
       source: row.source as string,
       license: row.license as string,
@@ -191,28 +182,21 @@ export class ContentService {
 
   /**
    * Fetch all production sentences for the given curriculum steps,
-   * filtered by CEFR level (≤ maxCefrLevel), ordered by step → created_at.
+   * ordered by step → created_at.
    * Used by TrackASessionScreen to preload the full Day in one shot.
    */
   async getSentencesForSteps(
     stepIds: readonly string[],
-    maxCefrLevel?: CEFRLevel,
   ): Promise<Sentence[]> {
     if (stepIds.length === 0) return [];
 
-    let query = this.supabase
+    const query = this.supabase
       .from('sentences')
       .select(
-        'id, track, text_en, text_ko, cefr_level, situation, source, license, curriculum_step_id, is_phrase, created_at',
+        'id, track, text_en, text_ko, situation, source, license, curriculum_step_id, is_phrase, created_at',
       )
       .in('curriculum_step_id', stepIds as string[])
       .eq('status', 'production');
-
-    if (maxCefrLevel) {
-      const cefrOrder: CEFRLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
-      const allowed = cefrOrder.slice(0, cefrOrder.indexOf(maxCefrLevel) + 1);
-      query = query.in('cefr_level', allowed);
-    }
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -234,7 +218,6 @@ export class ContentService {
       track: row.track as Track,
       textEn: row.text_en as string,
       textKo: (row.text_ko as string | null) ?? null,
-      cefrLevel: row.cefr_level as CEFRLevel,
       situation: (row.situation as string | null) ?? null,
       source: row.source as string,
       license: row.license as string,
@@ -358,22 +341,12 @@ export class ContentService {
    * Count the number of production sentences for a given curriculum step.
    * Used by the session screen to show progress (e.g. "5 / 20").
    */
-  /**
-   * Count the number of production sentences for a given curriculum step,
-   * optionally filtered by CEFR level range (matches pick_next_sentence
-   * RPC behavior so totalCount reflects actually-available sentences).
-   */
-  async countSentencesInStep(curriculumStepId: string, maxCefrLevel?: CEFRLevel): Promise<number> {
-    const cefrOrder: CEFRLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
-    let query = this.supabase
+  async countSentencesInStep(curriculumStepId: string): Promise<number> {
+    const query = this.supabase
       .from('sentences')
       .select('id', { count: 'exact', head: true })
       .eq('curriculum_step_id', curriculumStepId)
       .eq('status', 'production');
-    if (maxCefrLevel) {
-      const allowed = cefrOrder.slice(0, cefrOrder.indexOf(maxCefrLevel) + 1);
-      query = query.in('cefr_level', allowed);
-    }
     const { count, error } = await query;
     if (error) throw new Error(error.message);
     return count ?? 0;
@@ -400,7 +373,7 @@ export class ContentService {
     }));
   }
 
-  /* RPC handles CEFR widening and ranking server-side; no helper needed here. */
+  /* Sentence ranking is handled server-side; no helper needed here. */
 
   private async readCache<T>(kind: CacheKind, key: string): Promise<T | null> {
     if (!this.db) return null;

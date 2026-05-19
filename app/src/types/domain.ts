@@ -4,8 +4,6 @@
  * from here, so breaking changes ripple widely.
  */
 
-export type CEFRLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
-
 export type Track = 'A' | 'B';
 
 /** Two-grade feedback captured per sentence in Track A (Req 1.7). */
@@ -58,7 +56,6 @@ export type CurriculumUnit = {
   id: string;
   orderIndex: number;
   titleKo: string;
-  cefrLevel: CEFRLevel;
   opens: UnitOpens;
   vocabPackId: string;
   theme: string;
@@ -128,7 +125,6 @@ export type Sentence = {
   track: Track;
   textEn: string;
   textKo: string | null;
-  cefrLevel: CEFRLevel;
   situation: string | null;
   source: string;
   license: string;
@@ -162,7 +158,6 @@ export type CurriculumDay = {
   isReview: boolean;
   unitId: string;
   unitIds: string[];
-  cefrLevel: CEFRLevel;
   introPhrases: IntroPhrase[];
 };
 

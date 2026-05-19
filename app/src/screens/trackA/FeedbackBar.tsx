@@ -30,7 +30,7 @@ export default function FeedbackBar({ onPick, disabled }: FeedbackBarProps) {
       <PickButton
         theme={theme}
         label="어려워요"
-        tone={theme.colors.accent}
+        tone={theme.colors.danger}
         onPress={() => onPick('hard')}
         disabled={disabled}
       />
